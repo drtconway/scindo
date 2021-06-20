@@ -3,7 +3,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(Catch2 REQUIRED)
-find_package(HTSLIB REQUIRED)
+find_package(HTSlib REQUIRED)
 
 include_directories(nlohmann_json::nlohmann_json)
 

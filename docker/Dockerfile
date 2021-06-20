@@ -32,3 +32,14 @@ RUN git clone https://github.com/simongog/sdsl-lite.git && \
     ./install.sh /usr/local && \
     cd .. && \
     rm -rf sdsl-lite
+
+ADD . /source
+ENV CMAKE_MODULE_PATH=/source/cmake/
+RUN cd /source && \
+    mkdir -p build && \
+    cd build && \
+    cmake .. && \
+    make && \
+    make install && \
+    cd / && \
+    rm -rf source

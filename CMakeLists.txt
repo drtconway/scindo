@@ -1,27 +1,13 @@
-# It's important to specify the minimum CMake version upfront required by
-# CMakeLists.txt. This is so that a user can clearly understand the reason the 
-# build will fail before the build actually occurs, instead of searching for the
-# CMake function that was used that is causing the failure.
 cmake_minimum_required(VERSION 3.2)
 
 set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake;${CMAKE_MODULE_PATH}")
 
-# Set the global package-wide C++ standard. This will be inherited by all
-# targets specified in the project. One can also specify the C++ standard in a
-# target-specific manner, using:
-#   set_target_properties(foo PROPERTIES CXX_STANDARD 11)
-#   target_compile_features(foo PUBLIC cxx_std_14)
-# together.
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Set the project name and version number. This allows for a user of your
-# library or tool to specify a particular version when they include it, as in 
-#   find_package(Scindo 1.0 REQUIRED)
 project(Scindo VERSION 1.0)
 set(Scindo_VERSION 1.0)
 
-# enable unit testing via "make test" once the code has been compiled.
 include(CTest)
 
 # Function to prepend the subdirectory to source files in subdirectories
@@ -45,7 +31,7 @@ set(CMAKE_BUILD_TYPE RelWithDebInfo)
 MESSAGE(DEBUG "${CMAKE_MODULE_PATH}")
 
 find_package(Threads REQUIRED)
-find_package(HTSLIB REQUIRED)
+find_package(HTSlib REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(nlohmann_json 3.2.0 REQUIRED)
 find_package(docopt COMPONENTS CXX REQUIRED)
@@ -77,3 +63,7 @@ target_link_libraries(
     ${Boost_LOG_LIBRARY}
     Threads::Threads)
 
+install(TARGETS scindo
+        CONFIGURATIONS Release)
+install(TARGETS scindo
+        CONFIGURATIONS RelWithDebInfo)
