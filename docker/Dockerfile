@@ -1,4 +1,4 @@
-FROM ubuntu:groovy
+FROM ubuntu:groovy AS builder
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -6,6 +6,7 @@ RUN apt update
 RUN apt install -y \
         cmake \
         g++ \
+        gdb \
         git \
         pkg-config \
         samtools \
@@ -40,6 +41,12 @@ RUN cd /source && \
     cd build && \
     cmake .. && \
     make && \
-    make install && \
-    cd / && \
-    rm -rf source
+    make install
+
+FROM ubuntu:groovy
+RUN apt update && \
+    apt install -y \
+        libdocopt0 \
+        libhts3 && \
+    rm -rf /var/lib/apt/lists/*
+COPY --from=builder /usr/local/bin/scindo /usr/local/bin/

@@ -70,6 +70,7 @@ namespace scindo
         using row_type = std::tuple<Columns...>;
 
         const std::vector<std::string> hdrs;
+        std::unordered_map<std::string,size_t> idx;
 
         table(std::initializer_list<std::string> p_hdrs)
             : hdrs(p_hdrs)
@@ -77,6 +78,10 @@ namespace scindo
             if (p_hdrs.size() != sizeof...(Columns))
             {
                 throw std::runtime_error("header and type are not the same width");
+            }
+            for (size_t i = 0; i < hdrs.size(); ++i)
+            {
+                idx[hdrs[i]] = i;
             }
         }
 
@@ -105,7 +110,34 @@ namespace scindo
             }
         }
 
-        void sort(std::initializer_list<int> p_keys)
+        void sort(const std::vector<std::string>& p_keys)
+        {
+            std::vector<int> keys;
+            for (auto itr = p_keys.begin(); itr != p_keys.end(); ++itr)
+            {
+                const auto& k0 = *itr;
+                if (k0.starts_with('-'))
+                {
+                    std::string k(k0.begin() + 1, k0.end());
+                    if (!idx.contains(k))
+                    {
+                        throw std::runtime_error("sort key does not exist");
+                    }
+                    keys.push_back(-(idx[k] + 1));
+                }
+                else
+                {
+                    if (!idx.contains(k0))
+                    {
+                        throw std::runtime_error("sort key does not exist");
+                    }
+                    keys.push_back(idx[k0] + 1);
+                }
+            }
+            sort(keys);
+        }
+
+        void sort(const std::vector<int>& p_keys)
         {
             std::sort(this->begin(), this->end(), [&](const auto& p_lhs, const auto& p_rhs) {
                 for (auto itr = p_keys.begin(); itr != p_keys.end(); ++itr)
@@ -131,6 +163,27 @@ namespace scindo
                 }
                 return false;
             });
+        }
+
+        template <typename X>
+        void filter(X p_predicate)
+        {
+            static_assert(std::is_convertible<X, std::function<bool(const row_type&)>>::value);
+            auto itr = this->begin();
+            auto jtr = this->begin();
+            while (itr != this->end())
+            {
+                if (p_predicate(*itr))
+                {
+                    if (jtr != itr)
+                    {
+                        *jtr = *itr;
+                    }
+                    ++jtr;
+                }
+                ++itr;
+            }
+            this->erase(jtr, this->end());
         }
     };
 }

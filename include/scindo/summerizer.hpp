@@ -26,6 +26,11 @@ namespace scindo
             return n;
         }
 
+        double sum() const
+        {
+            return s;
+        }
+
         double mean() const
         {
             return s/n;
