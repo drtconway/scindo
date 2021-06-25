@@ -1,6 +1,7 @@
 #include <iostream>
 #include <sstream>
 #include <unordered_set>
+#include <boost/flyweight.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/log/utility/setup.hpp>
 #include <boost/math/distributions/beta.hpp>
@@ -12,6 +13,7 @@
 #include "scindo/benjamini_hochberg.hpp"
 #include "scindo/gtf.hpp"
 #include "scindo/stabby.hpp"
+#include "scindo/tsv.hpp"
 #include "scindo/vcf.hpp"
 #include "scindo/summerizer.hpp"
 #include "scindo/table.hpp"
@@ -21,6 +23,34 @@ using namespace scindo;
 
 namespace // anonymous
 {
+    const char usage[] =
+R"(scindo - find allele specific expression
+
+    Usage:
+      scindo [options] <annotation-gtf> <vcf-file> <bam-file>
+
+    Options:
+      -h --help                         Show this screen
+      -e FRAC,      --faction FRAC      Minimum fraction for calling allele specific expression [default: 0.6]
+      -f FEATS,     --features FEATS    Comma separated list GTF features to capture [default: gene]
+      -c COV,       --min-coverage NUM  Minumum coverage for sites [default: 10]
+      -m NUM,       --min-hets NUM      Minimum number of heterozygous sites for a gene [default: 5]
+      -o FILE,      --output-file FILE  File to write the output to [default: -]
+      -q FDR,       --false-discovery-rate FDR False discovery rate to use [default: 0.05]
+      -s SAMPLE,    --sample SAMPLE     Select the given sample to detect heterozygous sites.
+      -g FILE,      --gene-list FILE    A TSV containing gene names to report against.
+      -G FILE,      --exclusion FILE    A TSV containing gene names to exclude.
+)";
+
+    using allele_seq = boost::flyweight<std::string>;
+
+    allele_seq allele_seq_1(char p_ch)
+    {
+        std::string s;
+        s.push_back(p_ch);
+        return allele_seq(s);
+    }
+
     std::string locus(const std::string& p_chrom, const scindo::stabby::interval& p_ivl)
     {
         std::ostringstream out;
@@ -49,20 +79,49 @@ namespace // anonymous
         return join(p_sep, p_items.begin(), p_items.end());
     }
 
-    const char usage[] =
-R"(scindo - find allele specific expression
+    std::string joinHap(const std::vector<int>& p_gts)
+    {
+        std::ostringstream out;
+        for (auto itr = p_gts.begin(); itr != p_gts.end(); ++itr)
+        {
+            if (itr != p_gts.begin())
+            {
+                out << '/';
+            }
+            if (*itr >= 0)
+            {
+                out << *itr;
+            }
+            else
+            {
+                out << '.';
+            }
+        }
+        return out.str();
+    }
 
-    Usage:
-      scindo [options] <annotation-gtf> <vcf-file> <bam-file>
-
-    Options:
-      -h --help                         Show this screen
-      -f FEATS,     --features FEATS    Comma separated list GTF features to capture [default: gene]
-      -c COV,       --min-coverage NUM  Minumum coverage for sites [default: 10]
-      -m NUM,       --min-hets NUM      Minimum number of heterozygous sites for a gene [default: 5]
-      -q FDR,       --false-discovery-rate FDR False discovery rate to use [default: 0.05]
-      -s SAMPLE,    --sample SAMPLE     Select the given sample to detect heterozygous sites.
-)";
+    std::unordered_set<std::string> gene_list(const std::string& p_filename)
+    {
+        std::unordered_set<std::string> res;
+        {
+            std::ifstream in(p_filename);
+            scindo::tsv T(in);
+            size_t cn = 0;
+            if (T.idx.contains("Gene Symbol"))
+            {
+                cn = T.idx.at("Gene Symbol");
+            }
+            else if (T.idx.contains("gene"))
+            {
+                cn = T.idx.at("gene");
+            }
+            for (auto itr = T.begin(); itr != T.end(); ++itr)
+            {
+                res.insert((*itr)[cn]);
+            }
+        }
+        return res;
+    }
 
     static constexpr bool enabled = false;
 
@@ -95,7 +154,7 @@ R"(scindo - find allele specific expression
     using clip = std::function<void(uint32_t p_ref, uint32_t p_seq, const scindo::bam::seq& p_bases)>;
 
     template <typename XM, typename XI, typename XD, typename XS, typename XC>
-    void with(uint32_t p_pos, const scindo::bam::seq& p_seq, const scindo::bam::cigar& p_cig,
+    void with(const std::string& p_chrom, uint32_t p_pos, const scindo::bam::seq& p_seq, const scindo::bam::cigar& p_cig,
               XM p_match, XI p_ins, XD p_del, XS p_skip, XC p_clip)
     {
         static_assert(std::is_convertible<XM,match>::value);
@@ -150,23 +209,24 @@ R"(scindo - find allele specific expression
         }
     }
 
-    void assign_haplotype(char refBase, char majBase, char morBase, int& majAllele, int& morAllele)
+    using ref_and_alts = std::vector<allele_seq>;
+
+    int find_allele(const ref_and_alts& p_alleles, const allele_seq& p_seq,
+                    const std::string& p_chrom, const uint32_t& p_pos, const uint32_t p_count)
     {
-        if (majBase == refBase)
+        for (int i = 0; i < p_alleles.size(); ++i)
         {
-            majAllele = 0;
-            morAllele = 1;
-            return;
+            if (p_alleles[i] == p_seq)
+            {
+                return i;
+            }
         }
-        if (morBase == refBase)
-        {
-            majAllele = 1;
-            morAllele = 0;
-            return;
-        }
-        majAllele = 1;
-        morAllele = 2;
-        return;
+        //std::cerr << "find_allele: " << p_seq << " in " << nlohmann::json(p_alleles)
+        //    << '\t' << p_chrom
+        //    << '\t' << p_pos
+        //    << '\t' << p_count
+        //    << std::endl;
+        return -1;
     }
 
     int main0(int argc, const char* argv[])
@@ -176,10 +236,10 @@ R"(scindo - find allele specific expression
         std::map<std::string, docopt::value>
             opts = docopt::docopt(usage, { argv + 1, argv + argc }, true, "scindo 0.1");
 
-        for (auto itr = opts.begin(); itr != opts.end(); ++itr)
-        {
-            std::cerr << itr->first << '\t' << itr->second << std::endl;
-        }
+        //for (auto itr = opts.begin(); itr != opts.end(); ++itr)
+        //{
+        //    std::cerr << itr->first << '\t' << itr->second << std::endl;
+        //}
 
         std::unordered_set<std::string> features;
         {
@@ -199,7 +259,19 @@ R"(scindo - find allele specific expression
             features.insert(std::string(s.begin() + p, s.end()));
         }
 
-        BOOST_LOG_TRIVIAL(info) << "features: " << join(",", features.begin(), features.end());
+        //BOOST_LOG_TRIVIAL(info) << "features: " << join(",", features.begin(), features.end());
+
+        std::unordered_set<std::string> wanted_genes;
+        if (opts.at("-g"))
+        {
+            wanted_genes = gene_list(opts.at("-g").asString());
+        }
+
+        std::unordered_set<std::string> unwanted_genes;
+        if (opts.at("-G"))
+        {
+            unwanted_genes = gene_list(opts.at("-G").asString());
+        }
 
         std::unordered_map<std::string, std::vector<stabby::interval>> ivls;
         std::unordered_map<std::string, std::unordered_map<stabby::interval,stuff>> idx;
@@ -236,11 +308,21 @@ R"(scindo - find allele specific expression
                         }
                     }
                 }
+
+                if (wanted_genes.size() > 0 && !wanted_genes.contains(s.gene_name))
+                {
+                    return;
+                }
+                else if (unwanted_genes.contains(s.gene_name))
+                {
+                    return;
+                }
+
                 idx[p_seqname][ivl] = s;
                 ivls[p_seqname].push_back(ivl);
             });
         }
-        BOOST_LOG_TRIVIAL(info) << "features: " << join(",", features.begin(), features.end());
+
         std::unordered_map<std::string,std::shared_ptr<stabby>> annot;
         {
             profile<enabled> P("build annot");
@@ -262,7 +344,7 @@ R"(scindo - find allele specific expression
         }
 
         std::unordered_map<std::string,std::unordered_map<stabby::interval,std::vector<uint32_t>>> vcf_positions;
-        std::unordered_map<std::string,std::unordered_map<uint32_t,char>> position_refs;
+        std::unordered_map<std::string,std::unordered_map<uint32_t,ref_and_alts>> position_seqs;
         {
             profile<enabled> P("scan VCF");
 
@@ -323,11 +405,26 @@ R"(scindo - find allele specific expression
                     }
                     if (hits.size() > 0)
                     {
-                        std::string r = V.ref();
-                        if (r.size() == 1)
+                        ref_and_alts& aa = position_seqs[chrom][pos];
+                        const size_t n = V.num_alts();
+                        for (size_t i = 0; i <= n; ++i)
                         {
-                            position_refs[chrom][pos] = r[0];
+                            std::string x = V.alt(i);
+                            bool found = false;
+                            for (size_t j = 0; j < aa.size(); ++j)
+                            {
+                                if (aa[j] == x)
+                                {
+                                    found = true;
+                                    break;
+                                }
+                            }
+                            if (!found)
+                            {
+                                aa.push_back(allele_seq(x));
+                            }
                         }
+                        //std::cerr << chrom << '\t' << pos << '\t' << nlohmann::json(aa) << std::endl;
                     }
                     for (auto itr = hits.begin(); itr != hits.end(); ++itr)
                     {
@@ -358,6 +455,11 @@ R"(scindo - find allele specific expression
         {
             min_cov = opts.at("-c").asLong();
         }
+        double Frac = 0.6;
+        if (opts.at("-e"))
+        {
+            Frac = std::stod(opts.at("-e").asString());
+        }
         double Q = 0.05;
         if (opts.at("-q"))
         {
@@ -386,7 +488,7 @@ R"(scindo - find allele specific expression
                 }
             }
         }
-        std::unordered_map<std::string,std::unordered_map<uint32_t,std::unordered_map<char,uint32_t>>> counts;
+        std::unordered_map<std::string,std::unordered_map<uint32_t,std::unordered_map<allele_seq,uint32_t>>> counts;
         {
             using scindo::bam::flag;
             profile<enabled> P("scan BAM");
@@ -453,7 +555,7 @@ R"(scindo - find allele specific expression
                     continue;
                 }
                 auto tmp = cursor;
-                with(pos, V.seq(), V.cigar(),
+                with(chrom, pos, V.seq(), V.cigar(),
                     [&](uint32_t p_ref, uint32_t p_seq, const bam::seq& p_bases) {
                         // Match
                         for (uint32_t i = 0; i < p_bases.size(); ++i)
@@ -469,7 +571,7 @@ R"(scindo - find allele specific expression
                             }
                             if (*tmp == p)
                             {
-                                auto b = p_bases[i];
+                                allele_seq b = allele_seq_1(p_bases[i]);
                                 counts[chrom][p][b] += 1;
                                 chrom_hit_count += 1;
                             }
@@ -477,6 +579,16 @@ R"(scindo - find allele specific expression
                     },
                     [&](uint32_t p_ref, uint32_t p_seq, const bam::seq& p_bases) {
                         // Insertion
+                        while (tmp != end && *tmp < p_ref)
+                        {
+                            ++tmp;
+                        }
+                        if (*tmp == p_ref)
+                        {
+                            allele_seq a(p_bases.asString());
+                            counts[chrom][p_ref][a] += 1;
+                            chrom_hit_count += 1;
+                        }
                     },
                     [&](uint32_t p_ref, uint32_t p_seq, uint32_t p_len) {
                         // Deletion
@@ -494,17 +606,20 @@ R"(scindo - find allele specific expression
             }
 
             scindo::table<std::string, std::string, std::string, uint32_t,
-                          uint32_t, uint32_t, double, double, double, std::string, std::string, std::string>
+                          uint32_t, uint32_t, double, double, double, double, double, std::string, std::string, std::string>
                 tbl({"geneName", "geneId", "locus", "numHets",
-                     "highCount", "lowCount", "highFrac", "pValue", "qValue",
+                     "highCount", "lowCount", "avgCov", "covSd", "highFrac", "pValue", "qValue",
                      "highHaplo", "lowHaplo", "positions"});
 
             std::vector<double> chi2s;
             summerizer majors;
             summerizer minors;
+            summerizer totals;
             std::vector<int> maj_alleles;
             std::vector<int> mor_alleles;
-            std::vector<std::pair<uint32_t,char>> qq;
+            std::vector<std::pair<uint32_t,allele_seq>> qq;
+            std::vector<uint32_t> used_positions;
+            allele_seq no_such_allele = allele_seq(std::string("N"));
             for (auto itr = vcf_positions.begin(); itr != vcf_positions.end(); ++itr)
             {
                 const auto& chrom = itr->first;
@@ -519,8 +634,10 @@ R"(scindo - find allele specific expression
                     chi2s.clear();
                     majors.clear();
                     minors.clear();
+                    totals.clear();
                     maj_alleles.clear();
                     mor_alleles.clear();
+                    used_positions.clear();
                     for (auto ktr = positions.begin(); ktr != positions.end(); ++ktr)
                     {
                         const auto& pos = *ktr;
@@ -528,18 +645,14 @@ R"(scindo - find allele specific expression
                         {
                             continue;
                         }
-                        const auto& baseCounts = counts.at(chrom).at(pos);
+                        const auto& alleleCounts = counts.at(chrom).at(pos);
                         uint32_t tot = 0;
-                        char refBase = 'N';
-                        if (position_refs.at(chrom).contains(pos))
-                        {
-                            refBase = position_refs.at(chrom).at(pos);
-                        }
+                        const auto& allele_seqs = position_seqs.at(chrom).at(pos);
 
                         qq.clear();
-                        qq.push_back(std::make_pair(0, 'N'));
-                        qq.push_back(std::make_pair(0, 'N'));
-                        for (auto ltr = baseCounts.begin(); ltr != baseCounts.end(); ++ltr)
+                        qq.push_back(std::make_pair(0, no_such_allele));
+                        qq.push_back(std::make_pair(0, no_such_allele));
+                        for (auto ltr = alleleCounts.begin(); ltr != alleleCounts.end(); ++ltr)
                         {
                             qq.push_back(std::make_pair(ltr->second, ltr->first));
                             tot += ltr->second;
@@ -547,11 +660,15 @@ R"(scindo - find allele specific expression
 
                         std::sort(qq.rbegin(), qq.rend());
                         uint32_t maj = qq[0].first;
-                        char majBase = qq[0].second;
+                        const auto& majAllele = qq[0].second;
                         uint32_t mor = qq[1].first;
-                        char morBase = qq[1].second;
+                        const auto& morAllele = qq[1].second;
                         double m = (maj + mor)/2.0;
                         double chi2 = 0;
+                        if (maj < min_cov)
+                        {
+                            continue;
+                        }
                         if (maj > 0)
                         {
                             double p = maj/m;
@@ -567,15 +684,21 @@ R"(scindo - find allele specific expression
 
                         majors.push_back(maj);
                         minors.push_back(mor);
+                        totals.push_back(maj + mor);
 
-                        int majAllele = -1;
-                        int morAllele = -1;
-                        assign_haplotype(refBase, majBase, morBase, majAllele, morAllele);
-                        maj_alleles.push_back(majAllele);
-                        mor_alleles.push_back(morAllele);
+                        int majAlleleNum = find_allele(allele_seqs, majAllele, chrom, pos, maj);
+                        int morAlleleNum = find_allele(allele_seqs, morAllele, chrom, pos, mor);
+
+                        maj_alleles.push_back(majAlleleNum);
+                        mor_alleles.push_back(morAlleleNum);
+                        used_positions.push_back(pos);
                     }
                     uint32_t n = chi2s.size();
                     if (n == 0 || majors.sum() + minors.sum() == 0)
+                    {
+                        continue;
+                    }
+                    if (used_positions.size() < min_hets)
                     {
                         continue;
                     }
@@ -593,9 +716,9 @@ R"(scindo - find allele specific expression
                     double majorFrac = majors.sum() / (majors.sum() + minors.sum());
 
                     tbl.push_back({
-                            idx.at(chrom).at(ivl).gene_name, idx.at(chrom).at(ivl).gene_id, locus(chrom, ivl), positions.size(),
-                            majors.sum(), minors.sum(), majorFrac, pv, 0,
-                            join(maj_alleles, '/'), join(mor_alleles, '/'), join(positions)});
+                            idx.at(chrom).at(ivl).gene_name, idx.at(chrom).at(ivl).gene_id, locus(chrom, ivl), used_positions.size(),
+                            majors.sum(), minors.sum(), totals.mean(), totals.sd(), majorFrac, pv, 0,
+                            joinHap(maj_alleles), joinHap(mor_alleles), join(used_positions)});
                 }
             }
             {
@@ -603,19 +726,24 @@ R"(scindo - find allele specific expression
                 pvals.reserve(tbl.size());
                 for (size_t i = 0; i < tbl.size(); ++i)
                 {
-                    pvals.push_back(std::get<7>(tbl[i]));
+                    pvals.push_back(std::get<9>(tbl[i]));
                 }
                 std::vector<double> qvals;
                 benjamini_hochberg(0.25)(pvals, qvals);
                 for (size_t i = 0; i < tbl.size(); ++i)
                 {
-                    std::get<8>(tbl[i]) = qvals[i];
+                    std::get<10>(tbl[i]) = qvals[i];
                 }
                 
             }
             tbl.filter([&](const auto& p_row) {
-                double pval = std::get<7>(p_row);
-                double qval = std::get<8>(p_row);
+                double frac = std::get<8>(p_row);
+                if (frac < Frac)
+                {
+                    return false;
+                }
+                double pval = std::get<9>(p_row);
+                double qval = std::get<10>(p_row);
                 return pval < qval;
             });
             tbl.sort(std::vector<std::string>({"pValue", "-highFrac"}));

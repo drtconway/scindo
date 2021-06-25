@@ -17,9 +17,10 @@ namespace scindo
         {
             size_t z;
             const uint8_t* ptr;
+            size_t off;
 
-            seq(size_t p_z, const uint8_t* p_ptr)
-                : z(p_z), ptr(p_ptr)
+            seq(size_t p_z, const uint8_t* p_ptr, size_t p_offset = 0)
+                : z(p_z), ptr(p_ptr), off(p_offset)
             {
             }
 
@@ -30,13 +31,24 @@ namespace scindo
 
             char operator[](size_t p_idx) const
             {
-                uint8_t x = bam_seqi(ptr, p_idx);
-                return "*AC?G???T??????N"[x];
+                uint8_t x = bam_seqi(ptr, off + p_idx);
+                return "*AC3G567T9abcdeN"[x];
             }
 
             seq range(size_t p_begin, size_t p_end) const
             {
-                return seq(p_end - p_begin, ptr + p_begin);
+                return seq(p_end - p_begin, ptr, off + p_begin);
+            }
+
+            std::string asString() const
+            {
+                std::string res;
+                res.reserve(size());
+                for (size_t i = 0; i < size(); ++i)
+                {
+                    res.push_back((*this)[i]);
+                }
+                return res;
             }
         };
 
