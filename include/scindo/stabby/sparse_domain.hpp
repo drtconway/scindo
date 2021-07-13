@@ -15,13 +15,19 @@ namespace scindo
             : array(p_begin, p_end),
               array_rank(&array),
               array_select(&array),
-              Z(p_end - p_begin)
+              N(p_end - p_begin),
+              Z(p_end != p_begin ? *std::prev(p_end) + 1: 0)
         {
         }
 
         size_t size() const
         {
             return Z;
+        }
+
+        size_t count() const
+        {
+            return N;
         }
 
         bool contains(const sparse_type& p_x) const
@@ -38,13 +44,18 @@ namespace scindo
 
         dense_type rank(const sparse_type& p_x) const
         {
+            if (p_x >= size())
+            {
+                return count();
+            }
             return array_rank.rank(p_x);
         }
 
         sdsl::sd_vector<> array;
         typename sdsl::sd_vector<>::rank_1_type array_rank;
         typename sdsl::sd_vector<>::select_1_type array_select;
-        size_t Z;
+        const size_t N;
+        const uint32_t Z;
     };
 }
 // namespace scindo

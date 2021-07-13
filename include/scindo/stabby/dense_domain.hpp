@@ -15,8 +15,19 @@ namespace scindo
         dense_domain(const sdsl::bit_vector& p_array)
             : array(p_array),
               array_rank(&array),
-              array_select(&array)
+              array_select(&array),
+              N(array_rank.rank(array.size()))
         {
+        }
+
+        size_t size() const
+        {
+            return array.size();
+        }
+
+        size_t count() const
+        {
+            return N;
         }
 
         bool contains(const sparse_type& p_x) const
@@ -39,6 +50,7 @@ namespace scindo
         sdsl::bit_vector array;
         typename sdsl::rank_support_v5<> array_rank;
         typename sdsl::select_support_mcl<> array_select;
+        const size_t N;
     };
 }
 // namespace scindo

@@ -80,6 +80,10 @@ namespace scindo
         {
             uint32_t r0 = domain->rank(p_pos);
             uint32_t r1 = domain->rank(p_pos+1);
+            if (r0 == gapped->count())
+            {
+                return gapped->size();
+            }
             uint32_t q = gapped->select(r0);
 
             return (r1 > r0 ? q : q - 1);
