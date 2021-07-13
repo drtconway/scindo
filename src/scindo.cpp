@@ -134,7 +134,7 @@ R"(scindo - find allele specific expression
         p_res.clear();
         for (size_t i = 0; i < p_raw_gts.size(); i += 2)
         {
-            if (p_idx < 0 || i == p_idx)
+            if (p_idx < 0 || i == 2*p_idx)
             {
                 p_res.push_back(std::make_pair(allele(p_raw_gts[i]), allele(p_raw_gts[i+1])));
             }
@@ -465,6 +465,7 @@ R"(scindo - find allele specific expression
         {
             Q = std::stod(opts.at("-q").asString());
         }
+        size_t num_low_hets = 0;
         std::unordered_map<std::string,std::vector<uint32_t>> het_positions;
         {
             profile<enabled> P("filter genes");
@@ -475,6 +476,7 @@ R"(scindo - find allele specific expression
                 {
                     if (jtr->second.size() < min_hets)
                     {
+                        num_low_hets += 1;
                         continue;
                     }
                     std::vector<uint32_t>& pos_vec = het_positions[chrom];
@@ -488,6 +490,7 @@ R"(scindo - find allele specific expression
                 }
             }
         }
+        BOOST_LOG_TRIVIAL(info) << "number of genes with too few hets: " << num_low_hets;
         std::unordered_map<std::string,std::unordered_map<uint32_t,std::unordered_map<allele_seq,uint32_t>>> counts;
         {
             using scindo::bam::flag;
