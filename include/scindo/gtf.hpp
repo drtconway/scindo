@@ -1,11 +1,13 @@
 #ifndef SCINDO_GTF_HPP
 #define SCINDO_GTF_HPP
 
+#include <istream>
 #include <variant>
 #include <vector>
 #include <unordered_map>
 
 #include <tao/pegtl.hpp>
+#include "scindo/files.hpp"
 
 namespace scindo
 {
@@ -130,7 +132,7 @@ namespace scindo
                     tao::pegtl::sor<score,missing>,      tab,
                     tao::pegtl::sor<strand,missing>,     tab,
                     tao::pegtl::sor<frame,missing>,      tab,
-                    attrs,      eol
+                    attrs
                 >
             {};
 
@@ -148,7 +150,7 @@ namespace scindo
                 : tao::pegtl::star<
                     tao::pegtl::sor<
                         comment,
-                        row
+                        tao::pegtl::seq<row, eol>
                     >
                 >
             {};
@@ -391,14 +393,44 @@ namespace scindo
             template<typename X>
             void parse(X p_handler)
             {
-                tao::pegtl::file_input in(filename);
+                input_file_holder_ptr in_ptr = files::in(filename);
+                return parse(**in_ptr, p_handler);
+            }
+
+            template<typename X>
+            void parse(std::istream& p_input, X p_handler)
+            {
                 scindo::gtf::detail::state s;
                 s.handler = p_handler;
-                if (!tao::pegtl::parse<scindo::gtf::detail::gtf, scindo::gtf::detail::action>(in, s))
+
+                size_t byte_num = 0;
+                size_t line_num = 0;
+                std::string line;
+                while (std::getline(p_input, line))
                 {
-                    throw std::runtime_error("error parsing gtf");
+                    const size_t line_len = line.size();
+                    if (starts_with(line, '#'))
+                    {
+                        ++line_num;
+                        byte_num += line_len;
+                        continue;
+                    }
+                    ++line_num;
+                    tao::pegtl::memory_input in(line, filename);
+                    if (!tao::pegtl::parse<scindo::gtf::detail::row, scindo::gtf::detail::action>(in, s))
+                    {
+                        throw std::runtime_error("error parsing gtf");
+                    }
+                    byte_num += line_len;
+                    
                 }
             }
+
+            static bool starts_with(const std::string& p_str, char p_ch)
+            {
+                return p_str.size() > 0 && p_str.front() == p_ch;
+            }
+
         };
     }
     // namespace gtf

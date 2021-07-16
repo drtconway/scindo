@@ -37,8 +37,8 @@ find_package(nlohmann_json 3.2.0 REQUIRED)
 find_package(docopt COMPONENTS CXX REQUIRED)
 find_package(pegtl)
  
-SET(Boost_USE_STATIC_LIBS ON)
-FIND_PACKAGE(Boost COMPONENTS log REQUIRED)
+#SET(Boost_USE_STATIC_LIBS ON)
+FIND_PACKAGE(Boost COMPONENTS log log_setup iostreams REQUIRED)
 
 add_subdirectory(src)
 
@@ -51,8 +51,7 @@ if(BUILD_TESTING)
     add_subdirectory(tests)
 endif()
 
-add_executable(scindo ${Scindo_SRC} ${Scindo_INC})
-
+add_executable(scindo ${Scindo_SRC})
 target_link_libraries(
     scindo
     docopt
@@ -60,7 +59,20 @@ target_link_libraries(
     sdsl divsufsort divsufsort64
     ${ZLIB_LIBRARIES}
     nlohmann_json::nlohmann_json
-    ${Boost_LOG_LIBRARY}
+    Boost::log_setup
+    ${Boost_LIBRARIES}
+    Threads::Threads)
+
+add_executable(hecil ${Hecil_SRC})
+target_link_libraries(
+    hecil
+    docopt
+    hts
+    sdsl divsufsort divsufsort64
+    ${ZLIB_LIBRARIES}
+    nlohmann_json::nlohmann_json
+    Boost::log_setup
+    ${Boost_LIBRARIES}
     Threads::Threads)
 
 install(TARGETS scindo

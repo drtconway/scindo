@@ -12,15 +12,15 @@ enable_testing()
 add_custom_target(bam_pileup_data COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/make-pileup.sh ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(test_gtf test_gtf.cpp)
-target_link_libraries(test_gtf PRIVATE Catch2::Catch2)
+target_link_libraries(test_gtf PRIVATE Catch2::Catch2 ${ZLIB_LIBRARIES} ${Boost_LIBRARIES})
 add_test(NAME test_gtf COMMAND test_gtf WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(stabby_test_cons stabby/test_cons.cpp)
-target_link_libraries(stabby_test_cons PRIVATE sdsl divsufsort divsufsort64 Catch2::Catch2)
+target_link_libraries(stabby_test_cons PRIVATE sdsl divsufsort divsufsort64 Catch2::Catch2 ${ZLIB_LIBRARIES} ${Boost_IOSTREAMS_LIBRARY})
 add_test(NAME stabby_test_cons COMMAND stabby_test_cons)
 
 add_executable(stabby_test_regressions stabby/test_regressions.cpp)
-target_link_libraries(stabby_test_regressions PRIVATE sdsl divsufsort divsufsort64 nlohmann_json::nlohmann_json Catch2::Catch2)
+target_link_libraries(stabby_test_regressions PRIVATE sdsl divsufsort divsufsort64 nlohmann_json::nlohmann_json Catch2::Catch2 ${ZLIB_LIBRARIES} ${Boost_IOSTREAMS_LIBRARY})
 add_test(NAME stabby_test_regressions COMMAND stabby_test_regressions WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 #add_executable(vcf_test_vcf_parser vcf/test_vcf_parser.cpp)
@@ -28,11 +28,15 @@ add_test(NAME stabby_test_regressions COMMAND stabby_test_regressions WORKING_DI
 #add_test(NAME vcf_test_vcf_parser  COMMAND vcf_test_vcf_parser)
 
 add_executable(vcf_test_vcf vcf/test_vcf.cpp)
-target_link_libraries(vcf_test_vcf hts Catch2::Catch2 Threads::Threads)
+target_link_libraries(vcf_test_vcf hts Catch2::Catch2 Threads::Threads ${ZLIB_LIBRARIES} ${Boost_IOSTREAMS_LIBRARY})
 add_test(NAME vcf_test_vcf  COMMAND vcf_test_vcf WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
 add_executable(bam_test_bam test_bam.cpp)
-target_link_libraries(bam_test_bam hts Catch2::Catch2 Threads::Threads)
+target_link_libraries(bam_test_bam hts Catch2::Catch2 Threads::Threads ${ZLIB_LIBRARIES} ${Boost_IOSTREAMS_LIBRARY})
 add_dependencies(bam_test_bam bam_pileup_data)
 add_test(NAME bam_test_bam  COMMAND bam_test_bam WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+
+add_executable(test_annotated_kmer_set test_annotated_kmer_set.cpp)
+target_link_libraries(test_annotated_kmer_set PRIVATE sdsl divsufsort divsufsort64 nlohmann_json::nlohmann_json Catch2::Catch2 ${ZLIB_LIBRARIES} ${Boost_IOSTREAMS_LIBRARY})
+add_test(NAME test_annotated_kmer_set  COMMAND test_annotated_kmer_set WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 

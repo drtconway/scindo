@@ -12,6 +12,7 @@ RUN apt install -y \
         samtools \
         catch2 \
         nlohmann-json3-dev \
+        libboost-iostreams-dev \
         libboost-log-dev \
         libdocopt-dev \
         libhts-dev \
