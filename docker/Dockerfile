@@ -51,3 +51,4 @@ RUN apt update && \
         libhts3 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=builder /usr/local/bin/scindo /usr/local/bin/
+COPY --from=builder /usr/local/bin/hecil /usr/local/bin/

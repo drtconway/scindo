@@ -75,7 +75,7 @@ target_link_libraries(
     ${Boost_LIBRARIES}
     Threads::Threads)
 
-install(TARGETS scindo
+install(TARGETS scindo hecil
         CONFIGURATIONS Release)
-install(TARGETS scindo
+install(TARGETS scindo hecil
         CONFIGURATIONS RelWithDebInfo)
