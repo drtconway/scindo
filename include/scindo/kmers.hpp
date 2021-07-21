@@ -195,6 +195,38 @@ namespace scindo
 
         template <class X>
         static
+        typename std::enable_if<std::is_convertible<X,std::function<void(kmer)>>::value,void>::type
+        make_canonical(const std::string& p_seq, const size_t& p_k, X p_acceptor)
+        {
+            const kmer M = (1ULL << (2*p_k)) - 1;
+            const size_t S = 2*(p_k - 1);
+            kmer x = 0;
+            kmer xb = 0;
+            size_t i = 0;
+            size_t j = 0;
+            for (auto s = p_seq.begin(); s != p_seq.end(); ++s, ++i)
+            {
+                kmer b;
+                if (!to_base(*s, b))
+                {
+                    x = 0;
+                    j = 0;
+                    continue;
+                }
+                kmer bb = 3-b;
+                x = (x << 2) | b;
+                xb = (xb >> 2) | (bb << S);
+                ++j;
+                if (j == p_k)
+                {
+                    p_acceptor(std::min(x & M, xb));
+                    --j;
+                }
+            }
+        }
+
+        template <class X>
+        static
         typename std::enable_if<std::is_convertible<X,std::function<void(kmer_and_pos)>>::value,void>::type
         make_canonical(const std::string& p_seq, const size_t& p_k, X p_acceptor)
         {
