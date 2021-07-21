@@ -61,6 +61,25 @@ R"(hecil - in silico depletion for RNASeq
         return itr != X.end() && *itr == x;
     }
 
+    template <typename X>
+    void with_contains(const std::vector<kmer>& Xs, const std::vector<kmer>& xs, X p_acceptor)
+    {
+        auto from = Xs.begin();
+        for (auto itr = xs.begin(); itr != xs.end(); ++itr)
+        {
+            auto jtr = std::lower_bound(from, Xs.end(), *itr);
+            if (jtr == Xs.end())
+            {
+                return;
+            }
+            if (*jtr == *itr)
+            {
+                p_acceptor(*itr);
+            }
+            from = jtr;
+        }
+    }
+
     int main0(int argc, const char* argv[])
     {
         boost::log::add_console_log(std::cerr, boost::log::keywords::format = "[%TimeStamp%] [%ThreadID%] [%Severity%] %Message%");
@@ -112,22 +131,36 @@ R"(hecil - in silico depletion for RNASeq
         std::string toss2_name = opts.at("<toss2>").asString();
         output_file_holder_ptr toss2 = files::out(toss2_name);
 
+        size_t rn = 0;
+        size_t rn_d = 0;
+        std::vector<kmer> xs;
+        auto start_time = std::chrono::high_resolution_clock::now();
         with(**fq1, **fq2, [&](const fastq_read& r1, const fastq_read& r2) {
-            size_t lhsHits = 0;
+            rn += 1;
+            rn_d += 1;
+            if ((rn & ((1ULL << 18) - 1)) == 0)
+            {
+                auto end_time = std::chrono::high_resolution_clock::now();
+                std::chrono::duration<double> delta = (end_time - start_time);
+                double rps = rn_d / delta.count();
+                BOOST_LOG_TRIVIAL(info) << "processed records: " << rn << '\t' << rps << " reads/second";
+                rn_d = 0;
+                start_time = std::chrono::high_resolution_clock::now();
+            }
+            xs.clear();
             kmers::make(std::get<1>(r1), K, [&](kmer p_x) {
-                if (contains(Y, p_x))
-                {
-                    lhsHits += 1;
-                }
+                xs.push_back(p_x);
             });
-            size_t rhsHits = 0;
             kmers::make(std::get<1>(r2), K, [&](kmer p_x) {
-                if (contains(Y, p_x))
-                {
-                    rhsHits += 1;
-                }
+                xs.push_back(p_x);
             });
-            if (lhsHits + rhsHits > 0)
+            std::sort(xs.begin(), xs.end());
+            size_t hits = 0;
+            with_contains(Y, xs, [&](const kmer p_x) {
+                hits += 1;
+            });
+
+            if (hits > 0)
             {
                 fastq_writer::write(**toss1, r1);
                 fastq_writer::write(**toss2, r2);
