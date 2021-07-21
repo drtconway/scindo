@@ -47,6 +47,7 @@ RUN cd /source && \
 FROM ubuntu:groovy
 RUN apt update && \
     apt install -y \
+        libboost-log1.71.0 \
         libdocopt0 \
         libhts3 && \
     rm -rf /var/lib/apt/lists/*
