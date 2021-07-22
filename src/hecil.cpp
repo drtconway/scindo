@@ -6,6 +6,7 @@
 #include <boost/log/utility/setup.hpp>
 #include <docopt/docopt.h>
 #include <nlohmann/json.hpp>
+#include <sdsl/sd_vector.hpp>
 #include "scindo/files.hpp"
 #include "scindo/fasta.hpp"
 #include "scindo/fastq.hpp"
@@ -80,6 +81,24 @@ R"(hecil - in silico depletion for RNASeq
         }
     }
 
+    template <typename X>
+    void with_contains(const sdsl::sd_vector<>& Xs, const kmer p_max, const std::vector<kmer>& xs, X p_acceptor)
+    {
+        for (auto itr = xs.begin(); itr != xs.end(); ++itr)
+        {
+            kmer x = *itr;
+            if (x > p_max)
+            {
+                return;
+            }
+
+            if (Xs[x])
+            {
+                p_acceptor(x);
+            }
+        }
+    }
+
     int main0(int argc, const char* argv[])
     {
         boost::log::add_console_log(std::cerr, boost::log::keywords::format = "[%TimeStamp%] [%ThreadID%] [%Severity%] %Message%");
@@ -115,6 +134,7 @@ R"(hecil - in silico depletion for RNASeq
             std::sort(Y.begin(), Y.end());
             Y.erase(std::unique(Y.begin(), Y.end()), Y.end());
         }
+        sdsl::sd_vector<> Z(Y.begin(), Y.end());
 
         std::string fq1_name = opts.at("<fastq1>").asString();
         input_file_holder_ptr fq1 = files::in(fq1_name);
@@ -123,17 +143,22 @@ R"(hecil - in silico depletion for RNASeq
 
         std::string keep1_name = opts.at("<keep1>").asString();
         output_file_holder_ptr keep1 = files::out(keep1_name);
+        fastq_writer keeper1(**keep1);
         std::string keep2_name = opts.at("<keep2>").asString();
         output_file_holder_ptr keep2 = files::out(keep2_name);
+        fastq_writer keeper2(**keep2);
 
         std::string toss1_name = opts.at("<toss1>").asString();
         output_file_holder_ptr toss1 = files::out(toss1_name);
+        fastq_writer tosser1(**toss1);
         std::string toss2_name = opts.at("<toss2>").asString();
         output_file_holder_ptr toss2 = files::out(toss2_name);
+        fastq_writer tosser2(**toss2);
 
         size_t rn = 0;
         size_t rn_d = 0;
         std::vector<kmer> xs;
+        const kmer zmax = Y.back();
         auto start_time = std::chrono::high_resolution_clock::now();
         with(**fq1, **fq2, [&](const fastq_read& r1, const fastq_read& r2) {
             rn += 1;
@@ -156,19 +181,23 @@ R"(hecil - in silico depletion for RNASeq
             });
             std::sort(xs.begin(), xs.end());
             size_t hits = 0;
-            with_contains(Y, xs, [&](const kmer p_x) {
+            with_contains(Z, zmax, xs, [&](const kmer p_x) {
                 hits += 1;
             });
 
             if (hits > 0)
             {
-                fastq_writer::write(**toss1, r1);
-                fastq_writer::write(**toss2, r2);
+                tosser1.write(r1);
+                tosser2.write(r2);
+                //fastq_writer::write(**toss1, r1);
+                //fastq_writer::write(**toss2, r2);
             }
             else
             {
-                fastq_writer::write(**keep1, r1);
-                fastq_writer::write(**keep2, r2);
+                keeper1.write(r1);
+                keeper1.write(r2);
+                //fastq_writer::write(**keep1, r1);
+                //fastq_writer::write(**keep2, r2);
             }
         });
 

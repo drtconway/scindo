@@ -6,6 +6,8 @@
 #include <tuple>
 #include <boost/algorithm/string/trim.hpp>
 
+#include "scindo/lines_of_file.hpp"
+
 namespace scindo
 {
     typedef std::tuple<std::string,std::string,std::string,std::string> fastq_read;
@@ -17,7 +19,7 @@ namespace scindo
         typedef item_type const& item_result_type;
 
         fastq_reader(std::istream& p_in)
-            : m_in(p_in), m_more(true)
+            : m_lines(p_in), m_more(true)
         {
             next();
         }
@@ -41,7 +43,7 @@ namespace scindo
     private:
         void next()
         {
-            if (!std::getline(m_in, m_next))
+            if (!m_lines.next(m_next))
             {
                 m_more = false;
                 return;
@@ -57,7 +59,7 @@ namespace scindo
             id1.clear();
             id1.insert(id1.end(), m_next.begin() + 1, m_next.end()); // drop the @
 
-            if (!std::getline(m_in, m_next))
+            if (!m_lines.next(m_next))
             {
                 throw std::domain_error("missing read sequence line.");
             }
@@ -67,7 +69,7 @@ namespace scindo
             seq.clear();
             seq.insert(seq.end(), m_next.begin(), m_next.end());
 
-            if (!std::getline(m_in, m_next) || !starts_with(m_next, '+'))
+            if (!m_lines.next(m_next) || !starts_with(m_next, '+'))
             {
                 throw std::domain_error("missing read spacer line.");
             }
@@ -77,7 +79,7 @@ namespace scindo
             id2.clear();
             id2.insert(id2.end(), m_next.begin() + 1, m_next.end()); // drop the +
 
-            if (!std::getline(m_in, m_next))
+            if (!m_lines.next(m_next))
             {
                 throw std::domain_error("missing read quality score line.");
             }
@@ -93,7 +95,7 @@ namespace scindo
             return p_str.size() > 0 && p_str.front() == p_ch;
         }
 
-        std::istream& m_in;
+        scindo::lines_of_file<true> m_lines;
         bool m_more;
         std::string m_next;
         fastq_read m_curr;
@@ -102,6 +104,24 @@ namespace scindo
     class fastq_writer
     {
     public:
+        fastq_writer(std::ostream& p_out)
+            : m_out(p_out), m_deque(1000), m_thread([this]() { write_strings(); })
+        {
+        }
+
+        ~fastq_writer()
+        {
+            m_deque.end();
+            m_thread.join();
+        }
+
+        void write(const fastq_read& p_read)
+        {
+            std::ostringstream buf;
+            write(buf, p_read);
+            m_deque.push_back(buf.str());
+        }
+
         static void write(std::ostream& p_out, const fastq_read& p_read)
         {
             p_out << '@' << std::get<0>(p_read) << std::endl;
@@ -109,8 +129,23 @@ namespace scindo
             p_out << '+' << std::get<2>(p_read) << std::endl;
             p_out << std::get<3>(p_read) << std::endl;
         }
+
+    private:
+        void write_strings()
+        {
+            std::string str;
+            while (m_deque.pop_front(str))
+            {
+                m_out.write(str.data(), str.size());
+            }
+        }
+
+        std::ostream& m_out;
+        scindo::concurrent_deque<std::string> m_deque;
+        std::thread m_thread;
     };
 }
 // namespace scindo
 
 #endif // SCINDO_FASTQ_HPP
+
