@@ -64,8 +64,8 @@ namespace scindo
     class lines_of_file<true>
     {
     public:
-        lines_of_file(std::istream& p_in)
-            : m_in(p_in), m_deque(100), m_thread([this]() { read_lines(); })
+        lines_of_file(std::istream& p_in, size_t p_bufferSize = 100)
+            : m_in(p_in), m_deque(p_bufferSize), m_thread([this]() { read_lines(); })
         {
         }
 

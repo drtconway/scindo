@@ -26,6 +26,7 @@ R"(hecil - in silico depletion for RNASeq
 
     Options:
       -h --help                         Show this screen
+      --read-buffer SIZE                buffer size for reading reads [default: 1024].
       --write-buffer SIZE               buffer size for writing reads [default: 1024].
 )";
 
@@ -40,10 +41,10 @@ R"(hecil - in silico depletion for RNASeq
     }
 
     template <typename X>
-    void with(std::istream& p_fq1, std::istream& p_fq2, X p_acceptor)
+    void with(size_t p_readBufferSize, std::istream& p_fq1, std::istream& p_fq2, X p_acceptor)
     {
-        fastq_reader fq1(p_fq1);
-        fastq_reader fq2(p_fq2);
+        fastq_reader fq1(p_fq1, p_readBufferSize);
+        fastq_reader fq2(p_fq2, p_readBufferSize);
 
         while (fq1.more() && fq2.more())
         {
@@ -137,6 +138,8 @@ R"(hecil - in silico depletion for RNASeq
         }
         sdsl::sd_vector<> Z(Y.begin(), Y.end());
 
+        const size_t readBufferSize = opts.at("--read-buffer").asLong();
+
         std::string fq1_name = opts.at("<fastq1>").asString();
         input_file_holder_ptr fq1 = files::in(fq1_name);
         std::string fq2_name = opts.at("<fastq2>").asString();
@@ -163,7 +166,7 @@ R"(hecil - in silico depletion for RNASeq
         std::vector<kmer> xs;
         const kmer zmax = Y.back();
         auto start_time = std::chrono::high_resolution_clock::now();
-        with(**fq1, **fq2, [&](const fastq_read& r1, const fastq_read& r2) {
+        with(readBufferSize, **fq1, **fq2, [&](const fastq_read& r1, const fastq_read& r2) {
             rn += 1;
             rn_d += 1;
             if ((rn & ((1ULL << 18) - 1)) == 0)
