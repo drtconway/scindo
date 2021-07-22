@@ -26,6 +26,7 @@ R"(hecil - in silico depletion for RNASeq
 
     Options:
       -h --help                         Show this screen
+      --write-buffer SIZE               buffer size for writing reads [default: 1024].
 )";
 
     std::string first_word(const std::string& p_str)
@@ -141,19 +142,21 @@ R"(hecil - in silico depletion for RNASeq
         std::string fq2_name = opts.at("<fastq2>").asString();
         input_file_holder_ptr fq2 = files::in(fq2_name);
 
+        const size_t writeBufferSize = opts.at("--write-buffer").asLong();
+
         std::string keep1_name = opts.at("<keep1>").asString();
         output_file_holder_ptr keep1 = files::out(keep1_name);
-        fastq_writer keeper1(**keep1);
+        fastq_writer keeper1(**keep1, writeBufferSize);
         std::string keep2_name = opts.at("<keep2>").asString();
         output_file_holder_ptr keep2 = files::out(keep2_name);
-        fastq_writer keeper2(**keep2);
+        fastq_writer keeper2(**keep2, writeBufferSize);
 
         std::string toss1_name = opts.at("<toss1>").asString();
         output_file_holder_ptr toss1 = files::out(toss1_name);
-        fastq_writer tosser1(**toss1);
+        fastq_writer tosser1(**toss1, writeBufferSize);
         std::string toss2_name = opts.at("<toss2>").asString();
         output_file_holder_ptr toss2 = files::out(toss2_name);
-        fastq_writer tosser2(**toss2);
+        fastq_writer tosser2(**toss2, writeBufferSize);
 
         size_t rn = 0;
         size_t rn_d = 0;

@@ -104,8 +104,8 @@ namespace scindo
     class fastq_writer
     {
     public:
-        fastq_writer(std::ostream& p_out)
-            : m_out(p_out), m_deque(1000), m_thread([this]() { write_strings(); })
+        fastq_writer(std::ostream& p_out, size_t p_bufferSize = 1024)
+            : m_out(p_out), m_deque(p_bufferSize), m_thread([this]() { write_strings(); })
         {
         }
 
