@@ -4,6 +4,7 @@ set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake;${CMAKE_MODULE_PATH}")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+#add_compile_options(-msse4.2)
 
 project(Scindo VERSION 1.0)
 set(Scindo_VERSION 1.0)

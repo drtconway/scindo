@@ -85,6 +85,7 @@ namespace scindo
 
         ~lines_of_file()
         {
+            m_deque.end();
             m_thread.join();
         }
 
@@ -98,7 +99,10 @@ namespace scindo
                 size_t z = blk.size();
                 if (z > 0)
                 {
-                    m_deque.push_back(std::move(blk));
+                    if (!m_deque.push_back(std::move(blk)))
+                    {
+                        break;
+                    }
                 }
                 if (z < N)
                 {

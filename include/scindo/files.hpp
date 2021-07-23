@@ -157,7 +157,7 @@ namespace scindo
             gzip_input_file_holder(const std::string& p_name)
                 : m_file(p_name, std::ios_base::in | std::ios_base::binary)
             {
-                m_filter.push(boost::iostreams::gzip_decompressor());
+                m_filter.push(boost::iostreams::gzip_decompressor(boost::iostreams::gzip::default_window_bits, 1024*1024));
                 m_filter.push(m_file);
             }
 
@@ -177,7 +177,7 @@ namespace scindo
             gzip_output_file_holder(const std::string& p_name)
                 : m_file(p_name, std::ios_base::out | std::ios_base::binary)
             {
-                m_filter.push(boost::iostreams::gzip_compressor());
+                m_filter.push(boost::iostreams::gzip_compressor(boost::iostreams::gzip::default_compression, 1024*1024));
                 m_filter.push(m_file);
             }
 

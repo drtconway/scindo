@@ -17,14 +17,5 @@ TEST_CASE("test reordering", "[annotated_kmer_set]") {
     {
         X.add(xs[i], ys[i]);
     }
-    REQUIRE( X.kmer_buf.size() == X.annot_buf.size() );
-    REQUIRE( X.kmer_buf.size() == 7 );
-    X.prepare();
-    REQUIRE( X.kmer_buf.size() == X.annot_buf.size() );
-    REQUIRE( X.kmer_buf.size() == 5 );
-    REQUIRE( X.annot_buf[0] == 1 );
-    REQUIRE( X.annot_buf[1] == 3 );
-    REQUIRE( X.annot_buf[2] == 1 );
-    REQUIRE( X.annot_buf[3] == 3 );
-    REQUIRE( X.annot_buf[4] == 1 );
+    X.flush();
 }

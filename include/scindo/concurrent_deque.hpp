@@ -25,21 +25,27 @@ namespace scindo
         {
             std::unique_lock<std::mutex> lk(m_lock);
             m_ended = true;
+            m_producer_cond.notify_all();
             m_consumer_cond.notify_all();
+        }
+
+        operator bool() const
+        {
+            return !m_ended;
         }
 
         concurrent_deque& push_front(const T& p_item)
         {
             std::unique_lock<std::mutex> lk(m_lock);
 
-            if (m_ended)
-            {
-                throw std::runtime_error("cannot push on ended concurrent_deque");
-            }
-
-            while (m_max_size > 0 && m_deque.size() >= m_max_size)
+            while (!m_ended && m_max_size > 0 && m_deque.size() >= m_max_size)
             {
                 m_producer_cond.wait(lk);
+            }
+
+            if (m_ended)
+            {
+                return *this;
             }
 
             m_deque.push_back(p_item);
@@ -53,14 +59,14 @@ namespace scindo
         {
             std::unique_lock<std::mutex> lk(m_lock);
 
-            if (m_ended)
-            {
-                throw std::runtime_error("cannot push on ended concurrent_deque");
-            }
-
-            while (m_max_size > 0 && m_deque.size() >= m_max_size)
+            while (!m_ended && m_max_size > 0 && m_deque.size() >= m_max_size)
             {
                 m_producer_cond.wait(lk);
+            }
+
+            if (m_ended)
+            {
+                return *this;
             }
 
             m_deque.push_back(p_item);
@@ -74,14 +80,14 @@ namespace scindo
         {
             std::unique_lock<std::mutex> lk(m_lock);
 
-            if (m_ended)
-            {
-                throw std::runtime_error("cannot push on ended concurrent_deque");
-            }
-
-            while (m_deque.size() >= m_max_size)
+            while (!m_ended && m_deque.size() >= m_max_size)
             {
                 m_producer_cond.wait(lk);
+            }
+
+            if (m_ended)
+            {
+                return *this;
             }
 
             m_deque.push_back(p_item);
@@ -95,14 +101,14 @@ namespace scindo
         {
             std::unique_lock<std::mutex> lk(m_lock);
 
-            if (m_ended)
-            {
-                throw std::runtime_error("cannot push on ended concurrent_deque");
-            }
-
-            while (m_deque.size() >= m_max_size)
+            while (!m_ended && m_deque.size() >= m_max_size)
             {
                 m_producer_cond.wait(lk);
+            }
+
+            if (m_ended)
+            {
+                return *this;
             }
 
             m_deque.push_back(p_item);
