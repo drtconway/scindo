@@ -137,12 +137,17 @@ namespace scindo
         template <typename X>
         void with_contains(const std::vector<kmer>& p_xs, X p_acceptor) const
         {
+            std::vector<bool> rs(p_xs.size(), false);
             for (size_t i = 0; i < p_xs.size(); ++i)
             {
                 kmer x = p_xs[i];
-                if (contains(x))
+                rs[i] = contains(x);
+            }
+            for (size_t i = 0; i < rs.size(); ++i)
+            {
+                if (rs[i])
                 {
-                    p_acceptor(x);
+                    p_acceptor(p_xs[i]);
                 }
             }
         }

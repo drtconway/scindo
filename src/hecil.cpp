@@ -237,12 +237,6 @@ R"(hecil - in silico depletion for RNASeq
             with(readBufferSize, fq1_name, fq2_name, [&](const fastq_read& r1, const fastq_read& r2, bool& stop) {
                 //profile<true> P("read handling");
 
-                if (rn > 1ULL << 20)
-                {
-                    stop = true;
-                    return;
-                }
-
                 rn += 1;
                 rn_d += 1;
                 if ((rn & ((1ULL << 18) - 1)) == 0)
@@ -294,8 +288,8 @@ R"(hecil - in silico depletion for RNASeq
                 }
             }
             BOOST_LOG_TRIVIAL(info) << "finished";
-            BOOST_LOG_TRIVIAL(info) << "reads kept: " << kept;
-            BOOST_LOG_TRIVIAL(info) << "reads tossed: " << tossed;
+            BOOST_LOG_TRIVIAL(info) << "reads kept: " << kept << "\t(" << (100*double(kept)/double(kept+tossed)) << "%)";
+            BOOST_LOG_TRIVIAL(info) << "reads tossed: " << tossed << "\t(" << (100*double(tossed)/double(kept+tossed)) << "%)";
         }
 
         profile<true>::report();
