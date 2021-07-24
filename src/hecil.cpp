@@ -43,6 +43,41 @@ R"(hecil - in silico depletion for RNASeq
     }
 
     template <typename X>
+    void with(size_t p_readBufferSize, std::string& p_fq1, std::string& p_fq2, X p_acceptor)
+    {
+        BOOST_LOG_TRIVIAL(info) << "opening " << p_fq1;
+        fastq_reader fq1(p_fq1, p_readBufferSize);
+        BOOST_LOG_TRIVIAL(info) << "opening " << p_fq2;
+        fastq_reader fq2(p_fq2, p_readBufferSize);
+
+        fastq_read r1;
+        fastq_read r2;
+        size_t rn = 0;
+
+        bool stop = false;
+        while (fq1.more() && fq2.more())
+        {
+            rn += 1;
+            r1 = *fq1;
+            r2 = *fq2;
+            p_acceptor(*fq1, *fq2, stop);
+            if (stop)
+            {
+                return;
+            }
+            ++fq1;
+            ++fq2;
+        }
+        if (fq1.more() != fq2.more())
+        {
+            std::cerr << rn << std::endl;
+            std::cerr << std::get<0>(r1) << std::endl;
+            std::cerr << std::get<0>(r2) << std::endl;
+            throw std::runtime_error("fastq files had unequal length.");
+        }
+    }
+
+    template <typename X>
     void with(size_t p_readBufferSize, std::istream& p_fq1, std::istream& p_fq2, X p_acceptor)
     {
         fastq_reader fq1(p_fq1, p_readBufferSize);
@@ -170,9 +205,9 @@ R"(hecil - in silico depletion for RNASeq
             const size_t readBufferSize = opts.at("--read-buffer").asLong();
 
             std::string fq1_name = opts.at("<fastq1>").asString();
-            input_file_holder_ptr fq1 = files::in(fq1_name);
+            //input_file_holder_ptr fq1 = files::in(fq1_name);
             std::string fq2_name = opts.at("<fastq2>").asString();
-            input_file_holder_ptr fq2 = files::in(fq2_name);
+            //input_file_holder_ptr fq2 = files::in(fq2_name);
 
             const size_t writeBufferSize = opts.at("--write-buffer").asLong();
 
@@ -198,7 +233,8 @@ R"(hecil - in silico depletion for RNASeq
             const kmer zmax = Y.back();
             std::map<size_t,size_t> hitHist;
             auto start_time = std::chrono::high_resolution_clock::now();
-            with(readBufferSize, **fq1, **fq2, [&](const fastq_read& r1, const fastq_read& r2, bool& stop) {
+            //with(readBufferSize, **fq1, **fq2, [&](const fastq_read& r1, const fastq_read& r2, bool& stop) {
+            with(readBufferSize, fq1_name, fq2_name, [&](const fastq_read& r1, const fastq_read& r2, bool& stop) {
                 //profile<true> P("read handling");
 
                 if (rn > 1ULL << 20)

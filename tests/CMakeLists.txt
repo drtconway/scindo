@@ -44,3 +44,7 @@ add_executable(test_kmer_set test_kmer_set.cpp)
 target_link_libraries(test_kmer_set PRIVATE sdsl divsufsort divsufsort64 nlohmann_json::nlohmann_json Catch2::Catch2 ${ZLIB_LIBRARIES} ${Boost_IOSTREAMS_LIBRARY})
 add_test(NAME test_kmer_set  COMMAND test_kmer_set WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 
+add_executable(test_gzip test_gzip.cpp)
+target_link_libraries(test_gzip PRIVATE sdsl divsufsort divsufsort64 nlohmann_json::nlohmann_json Catch2::Catch2 ${ZLIB_LIBRARIES} ${Boost_IOSTREAMS_LIBRARY})
+add_test(NAME test_gzip  COMMAND test_gzip WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
+

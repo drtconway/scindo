@@ -18,6 +18,12 @@ namespace scindo
         typedef fastq_read item_type;
         typedef item_type const& item_result_type;
 
+        fastq_reader(std::string& p_name, size_t p_bufferSize = 100)
+            : m_lines(p_name, p_bufferSize), m_more(true)
+        {
+            next();
+        }
+
         fastq_reader(std::istream& p_in, size_t p_bufferSize = 100)
             : m_lines(p_in, p_bufferSize), m_more(true)
         {
