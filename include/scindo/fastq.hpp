@@ -320,14 +320,19 @@ namespace scindo
 
         void write(const fastq_tuple& p_read)
         {
+            static const std::string endl("\n");
             auto r0 = std::get<0>(p_read);
             write(r0.first, r0.second);
+            write(endl.begin(), endl.end());
             auto r1 = std::get<1>(p_read);
             write(r1.first, r1.second);
+            write(endl.begin(), endl.end());
             auto r2 = std::get<2>(p_read);
             write(r2.first, r2.second);
+            write(endl.begin(), endl.end());
             auto r3 = std::get<3>(p_read);
             write(r3.first, r3.second);
+            write(endl.begin(), endl.end());
         }
 
         void write(const fastq_read& p_read)

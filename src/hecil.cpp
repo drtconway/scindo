@@ -231,11 +231,6 @@ R"(hecil - in silico depletion for RNASeq
             scindo::fastq_reader::with(fq1_name, fq2_name, [&](const fastq_tuple& r1, const fastq_tuple& r2, bool& stop) {
                 //profile<true> P("read handling");
 
-                if (0)
-                {
-                    auto x = std::get<1>(r1);
-                    std::cerr << "x = " << std::string(x.first, x.second) << std::endl;
-                }
                 rn += 1;
                 rn_d += 1;
                 if ((rn & ((1ULL << 18) - 1)) == 0)
