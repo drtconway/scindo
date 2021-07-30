@@ -36,6 +36,38 @@ namespace scindo
             x = ((x >> 32) & m6) | ((x & m6) << 32);
             return x;
         }
+
+        template <typename Vec>
+        struct bounds
+        {
+            using itr_type = typename Vec::const_iterator;
+
+            static itr_type begin(const Vec& p_vec)
+            {
+                return p_vec.begin();
+            }
+
+            static itr_type end(const Vec& p_vec)
+            {
+                return p_vec.end();
+            }
+        };
+
+        template <typename Itr>
+        struct bounds<std::pair<Itr,Itr>>
+        {
+            using itr_type = Itr;
+
+            static itr_type begin(const std::pair<Itr,Itr>& p_pair)
+            {
+                return p_pair.first;
+            }
+
+            static itr_type end(const std::pair<Itr,Itr>& p_pair)
+            {
+                return p_pair.second;
+            }
+        };
     }
     // namespace detail
 
@@ -89,15 +121,15 @@ namespace scindo
             return "ACGT"[p_x&3];
         }
 
-        template <typename X>
+        template <typename Q, typename X>
         static
         typename std::enable_if<std::is_convertible<X,std::function<void(kmer)>>::value,void>::type
-        make(const std::string& p_seq, const size_t& p_k, X p_acceptor)
+        make(const Q& p_seq, const size_t& p_k, X p_acceptor)
         {
             const kmer M = (1ULL << (2*p_k)) - 1;
             kmer x = 0;
             size_t j = 0;
-            for (auto s = p_seq.begin(); s != p_seq.end(); ++s)
+            for (auto s = detail::bounds<Q>::begin(p_seq); s != detail::bounds<Q>::end(p_seq); ++s)
             {
                 kmer b;
                 if (!to_base(*s, b))
@@ -116,23 +148,24 @@ namespace scindo
             }
         }
 
-        static void make(const std::string& p_seq, const size_t& p_k, std::vector<kmer>& p_kmers)
+        template <typename Q>
+        static void make(const Q& p_seq, const size_t& p_k, std::vector<kmer>& p_kmers)
         {
             p_kmers.clear();
             make(p_seq, p_k, [&](kmer p_x) { p_kmers.push_back(p_x); });
         }
 
-        template <typename X>
+        template <typename Q, typename X>
         static
         typename std::enable_if<std::is_convertible<X,std::function<void(kmer, kmer)>>::value,void>::type
-        make(const std::string& p_seq, const size_t& p_k, X p_acceptor)
+        make(const Q& p_seq, const size_t& p_k, X p_acceptor)
         {
             const kmer M = (1ULL << (2*p_k)) - 1;
             const size_t S = 2*(p_k - 1);
             kmer x = 0;
             kmer xb = 0;
             size_t j = 0;
-            for (auto s = p_seq.begin(); s != p_seq.end(); ++s)
+            for (auto s = detail::bounds<Q>::begin(p_seq); s != detail::bounds<Q>::end(p_seq); ++s)
             {
                 kmer b;
                 if (!to_base(*s, b))

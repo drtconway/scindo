@@ -199,6 +199,101 @@ R"(hecil - in silico depletion for RNASeq
         }
         kmer_set Z(Y);
 
+        if (1)
+        {
+            profile<true> P("processing");
+
+            const size_t readBufferSize = opts.at("--read-buffer").asLong();
+
+            std::string fq1_name = opts.at("<fastq1>").asString();
+            std::string fq2_name = opts.at("<fastq2>").asString();
+
+            const size_t writeBufferSize = opts.at("--write-buffer").asLong();
+
+            std::string keep1_name = opts.at("<keep1>").asString();
+            fastq_writer keeper1(keep1_name);
+            std::string keep2_name = opts.at("<keep2>").asString();
+            fastq_writer keeper2(keep2_name);
+
+            std::string toss1_name = opts.at("<toss1>").asString();
+            fastq_writer tosser1(toss1_name);
+            std::string toss2_name = opts.at("<toss2>").asString();
+            fastq_writer tosser2(toss2_name);
+
+            size_t rn = 0;
+            size_t rn_d = 0;
+            size_t kept = 0;
+            size_t tossed = 0;
+            std::vector<kmer> xs;
+            const kmer zmax = Y.back();
+            std::map<size_t,size_t> hitHist;
+            auto start_time = std::chrono::high_resolution_clock::now();
+            scindo::fastq_reader::with(fq1_name, fq2_name, [&](const fastq_tuple& r1, const fastq_tuple& r2, bool& stop) {
+                //profile<true> P("read handling");
+
+                if (0)
+                {
+                    auto x = std::get<1>(r1);
+                    std::cerr << "x = " << std::string(x.first, x.second) << std::endl;
+                }
+                rn += 1;
+                rn_d += 1;
+                if ((rn & ((1ULL << 18) - 1)) == 0)
+                {
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    std::chrono::duration<double> delta = (end_time - start_time);
+                    double rps = rn_d / delta.count();
+                    BOOST_LOG_TRIVIAL(info) << "processed records: " << rn << '\t' << rps << " reads/second";
+                    rn_d = 0;
+                    start_time = std::chrono::high_resolution_clock::now();
+                    if (false && rn > 1024*1024)
+                    {
+                        stop = true;
+                        return;
+                    }
+                }
+                {
+                    //profile<true> P("kmerizing");
+
+                    xs.clear();
+                    kmers::make(std::get<1>(r1), K, [&](kmer p_x) {
+                        xs.push_back(p_x);
+                    });
+                    kmers::make(std::get<1>(r2), K, [&](kmer p_x) {
+                        xs.push_back(p_x);
+                    });
+                }
+
+                size_t hits = 0;
+                {
+                    //profile<true> P("lookuping");
+
+                    Z.with_contains(xs, [&](const kmer p_x) {
+                        hits += 1;
+                    });
+                }
+
+                if (hits > 0)
+                {
+                    //profile<true> P("writing tosses");
+                    tosser1.write(r1);
+                    tosser2.write(r2);
+                    tossed += 1;
+                }
+                else
+                {
+                    //profile<true> P("writing keeps");
+                    keeper1.write(r1);
+                    keeper2.write(r2);
+                    kept += 1;
+                }
+            });
+
+            BOOST_LOG_TRIVIAL(info) << "finished";
+            BOOST_LOG_TRIVIAL(info) << "reads kept: " << kept << "\t(" << (100*double(kept)/double(kept+tossed)) << "%)";
+            BOOST_LOG_TRIVIAL(info) << "reads tossed: " << tossed << "\t(" << (100*double(tossed)/double(kept+tossed)) << "%)";
+        }
+        if (0)
         {
             profile<true> P("processing");
 
@@ -233,7 +328,6 @@ R"(hecil - in silico depletion for RNASeq
             const kmer zmax = Y.back();
             std::map<size_t,size_t> hitHist;
             auto start_time = std::chrono::high_resolution_clock::now();
-            //with(readBufferSize, **fq1, **fq2, [&](const fastq_read& r1, const fastq_read& r2, bool& stop) {
             with(readBufferSize, fq1_name, fq2_name, [&](const fastq_read& r1, const fastq_read& r2, bool& stop) {
                 //profile<true> P("read handling");
 
@@ -247,20 +341,33 @@ R"(hecil - in silico depletion for RNASeq
                     BOOST_LOG_TRIVIAL(info) << "processed records: " << rn << '\t' << rps << " reads/second";
                     rn_d = 0;
                     start_time = std::chrono::high_resolution_clock::now();
+                    if (rn > 1024*1024)
+                    {
+                        stop = true;
+                        return;
+                    }
                 }
-                xs.clear();
-                kmers::make(std::get<1>(r1), K, [&](kmer p_x) {
-                    xs.push_back(p_x);
-                });
-                kmers::make(std::get<1>(r2), K, [&](kmer p_x) {
-                    xs.push_back(p_x);
-                });
-                std::sort(xs.begin(), xs.end());
+                {
+                    //profile<true> P("kmerizing");
+
+                    xs.clear();
+                    kmers::make(std::get<1>(r1), K, [&](kmer p_x) {
+                        xs.push_back(p_x);
+                    });
+                    kmers::make(std::get<1>(r2), K, [&](kmer p_x) {
+                        xs.push_back(p_x);
+                    });
+                    std::sort(xs.begin(), xs.end());
+                }
 
                 size_t hits = 0;
-                Z.with_contains(xs, [&](const kmer p_x) {
-                    hits += 1;
-                });
+                {
+                    //profile<true> P("lookuping");
+
+                    Z.with_contains(xs, [&](const kmer p_x) {
+                        hits += 1;
+                    });
+                }
 
                 if (hits > 0)
                 {
