@@ -301,7 +301,7 @@ namespace scindo
             }
         }
 
-        fastq_writer(const std::string& p_out_name, size_t p_queue_size = 4, size_t p_in_buffer_size = 4*1024*1024, size_t p_out_buffer_size = 128*1024*1024)
+        fastq_writer(const std::string& p_out_name, size_t p_queue_size = 4, size_t p_in_buffer_size = 64*1024*1024, size_t p_out_buffer_size = 8*1024*1024)
             : m_spare_buffers(p_queue_size), m_full_buffers(p_queue_size), m_thread([&]() { write_strings(p_out_name, p_out_buffer_size); })
         {
             size_t buf_size = p_in_buffer_size / p_queue_size;
