@@ -231,15 +231,16 @@ R"(scindo - find allele specific expression
 
     int main0(int argc, const char* argv[])
     {
-        boost::log::add_console_log(std::cerr);
+        boost::log::add_console_log(std::cerr, boost::log::keywords::format = "[%TimeStamp%] [%ThreadID%] [%Severity%] %Message%");
+        boost::log::add_common_attributes();
 
         std::map<std::string, docopt::value>
             opts = docopt::docopt(usage, { argv + 1, argv + argc }, true, "scindo 0.1");
 
-        //for (auto itr = opts.begin(); itr != opts.end(); ++itr)
-        //{
-        //    std::cerr << itr->first << '\t' << itr->second << std::endl;
-        //}
+        for (auto itr = opts.begin(); itr != opts.end(); ++itr)
+        {
+            BOOST_LOG_TRIVIAL(info) << itr->first << '\t' << itr->second;
+        }
 
         std::unordered_set<std::string> features;
         {
@@ -259,8 +260,6 @@ R"(scindo - find allele specific expression
             features.insert(std::string(s.begin() + p, s.end()));
         }
 
-        //BOOST_LOG_TRIVIAL(info) << "features: " << join(",", features.begin(), features.end());
-
         std::unordered_set<std::string> wanted_genes;
         if (opts.at("-g"))
         {
@@ -276,6 +275,7 @@ R"(scindo - find allele specific expression
         std::unordered_map<std::string, std::vector<stabby::interval>> ivls;
         std::unordered_map<std::string, std::unordered_map<stabby::interval,stuff>> idx;
         {
+            BOOST_LOG_TRIVIAL(info) << "scanning annotation: " << opts.at("<annotation-gtf>").asString();
             profile<enabled> P("scan GTF");
 
             gtf::gtf_file G(opts.at("<annotation-gtf>").asString());
@@ -325,7 +325,7 @@ R"(scindo - find allele specific expression
 
         std::unordered_map<std::string,std::shared_ptr<stabby>> annot;
         {
-            profile<enabled> P("build annot");
+            profile<false> P("build annot");
             for (auto itr = ivls.begin(); itr != ivls.end(); ++itr)
             {
                 const auto& chrom = itr->first;
@@ -346,6 +346,7 @@ R"(scindo - find allele specific expression
         std::unordered_map<std::string,std::unordered_map<stabby::interval,std::vector<uint32_t>>> vcf_positions;
         std::unordered_map<std::string,std::unordered_map<uint32_t,ref_and_alts>> position_seqs;
         {
+            BOOST_LOG_TRIVIAL(info) << "scanning vcf: " << opts.at("<vcf-file>").asString();
             profile<enabled> P("scan VCF");
 
             vcf::vcf_file_reader V(opts.at("<vcf-file>").asString());
@@ -493,6 +494,8 @@ R"(scindo - find allele specific expression
         BOOST_LOG_TRIVIAL(info) << "number of genes with too few hets: " << num_low_hets;
         std::unordered_map<std::string,std::unordered_map<uint32_t,std::unordered_map<allele_seq,uint32_t>>> counts;
         {
+            BOOST_LOG_TRIVIAL(info) << "scanning bam: " << opts.at("<bam-file>").asString();
+
             using scindo::bam::flag;
             profile<enabled> P("scan BAM");
 
@@ -732,12 +735,12 @@ R"(scindo - find allele specific expression
                     pvals.push_back(std::get<9>(tbl[i]));
                 }
                 std::vector<double> qvals;
-                benjamini_hochberg(0.25)(pvals, qvals);
+                benjamini_hochberg(static_cast<const double&>(Q))(pvals, qvals);
                 for (size_t i = 0; i < tbl.size(); ++i)
                 {
                     std::get<10>(tbl[i]) = qvals[i];
                 }
-                
+
             }
             tbl.filter([&](const auto& p_row) {
                 double frac = std::get<8>(p_row);
@@ -750,9 +753,11 @@ R"(scindo - find allele specific expression
                 return pval < qval;
             });
             tbl.sort(std::vector<std::string>({"pValue", "-highFrac"}));
-            tbl.write(std::cout);
+
+            output_file_holder_ptr outp = files::out(opts.at("-o").asString());
+            tbl.write(**outp);
         }
-        profile<enabled>::report();
+        profile<true>::report();
 
         return 0;
     }
