@@ -9,3 +9,9 @@ set(Hecil_SRC
     )
 PREPEND(Hecil_SRC)
 set(Hecil_SRC ${Hecil_SRC} PARENT_SCOPE)
+
+set(Perya_SRC
+    perya.cpp
+    )
+PREPEND(Perya_SRC)
+set(Perya_SRC ${Perya_SRC} PARENT_SCOPE)

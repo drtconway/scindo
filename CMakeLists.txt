@@ -76,7 +76,19 @@ target_link_libraries(
     ${Boost_LIBRARIES}
     Threads::Threads)
 
-install(TARGETS scindo hecil
+add_executable(perya ${Perya_SRC})
+target_link_libraries(
+    perya
+    docopt
+    hts
+    sdsl divsufsort divsufsort64
+    ${ZLIB_LIBRARIES}
+    nlohmann_json::nlohmann_json
+    Boost::log_setup
+    ${Boost_LIBRARIES}
+    Threads::Threads)
+
+install(TARGETS scindo hecil perya
         CONFIGURATIONS Release)
-install(TARGETS scindo hecil
+install(TARGETS scindo hecil perya
         CONFIGURATIONS RelWithDebInfo)

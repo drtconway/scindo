@@ -23,7 +23,7 @@ namespace // anonymous
 R"(hecil - in silico depletion for RNASeq
 
     Usage:
-      hecil [options] <reference-fasta> <fastq1> <fastq2> <keep1> <keep2> <toss1> <toss2>
+      hecil [options] <reference-fasta> <fastq1> <fastq2> <keep1> <keep2> [<toss1> <toss2>]
 
     Options:
       -h --help                         Show this screen
@@ -215,10 +215,17 @@ R"(hecil - in silico depletion for RNASeq
             std::string keep2_name = opts.at("<keep2>").asString();
             fastq_writer keeper2(keep2_name);
 
-            std::string toss1_name = opts.at("<toss1>").asString();
-            fastq_writer tosser1(toss1_name);
-            std::string toss2_name = opts.at("<toss2>").asString();
-            fastq_writer tosser2(toss2_name);
+            std::string toss1_name;
+            std::string toss2_name;
+            std::shared_ptr<fastq_writer> tosser1{};
+            std::shared_ptr<fastq_writer> tosser2{};
+            if (opts.at("<toss1>"))
+            {
+                toss1_name = opts.at("<toss1>").asString();
+                tosser1 = std::shared_ptr<fastq_writer>(new fastq_writer(toss1_name));
+                toss2_name = opts.at("<toss2>").asString();
+                tosser2 = std::shared_ptr<fastq_writer>(new fastq_writer(toss2_name));
+            }
 
             size_t rn = 0;
             size_t rn_d = 0;
@@ -270,125 +277,21 @@ R"(hecil - in silico depletion for RNASeq
 
                 if (hits > 0)
                 {
-                    //profile<true> P("writing tosses");
-                    tosser1.write(r1);
-                    tosser2.write(r2);
-                    tossed += 1;
-                }
-                else
-                {
-                    //profile<true> P("writing keeps");
-                    keeper1.write(r1);
-                    keeper2.write(r2);
-                    kept += 1;
-                }
-            });
-
-            BOOST_LOG_TRIVIAL(info) << "finished";
-            BOOST_LOG_TRIVIAL(info) << "reads kept: " << kept << "\t(" << (100*double(kept)/double(kept+tossed)) << "%)";
-            BOOST_LOG_TRIVIAL(info) << "reads tossed: " << tossed << "\t(" << (100*double(tossed)/double(kept+tossed)) << "%)";
-        }
-        if (0)
-        {
-            profile<true> P("processing");
-
-            const size_t readBufferSize = opts.at("--read-buffer").asLong();
-
-            std::string fq1_name = opts.at("<fastq1>").asString();
-            //input_file_holder_ptr fq1 = files::in(fq1_name);
-            std::string fq2_name = opts.at("<fastq2>").asString();
-            //input_file_holder_ptr fq2 = files::in(fq2_name);
-
-            const size_t writeBufferSize = opts.at("--write-buffer").asLong();
-
-            std::string keep1_name = opts.at("<keep1>").asString();
-            output_file_holder_ptr keep1 = files::out(keep1_name);
-            fastq_writer keeper1(**keep1, writeBufferSize);
-            std::string keep2_name = opts.at("<keep2>").asString();
-            output_file_holder_ptr keep2 = files::out(keep2_name);
-            fastq_writer keeper2(**keep2, writeBufferSize);
-
-            std::string toss1_name = opts.at("<toss1>").asString();
-            output_file_holder_ptr toss1 = files::out(toss1_name);
-            fastq_writer tosser1(**toss1, writeBufferSize);
-            std::string toss2_name = opts.at("<toss2>").asString();
-            output_file_holder_ptr toss2 = files::out(toss2_name);
-            fastq_writer tosser2(**toss2, writeBufferSize);
-
-            size_t rn = 0;
-            size_t rn_d = 0;
-            size_t kept = 0;
-            size_t tossed = 0;
-            std::vector<kmer> xs;
-            const kmer zmax = Y.back();
-            std::map<size_t,size_t> hitHist;
-            auto start_time = std::chrono::high_resolution_clock::now();
-            with(readBufferSize, fq1_name, fq2_name, [&](const fastq_read& r1, const fastq_read& r2, bool& stop) {
-                //profile<true> P("read handling");
-
-                rn += 1;
-                rn_d += 1;
-                if ((rn & ((1ULL << 18) - 1)) == 0)
-                {
-                    auto end_time = std::chrono::high_resolution_clock::now();
-                    std::chrono::duration<double> delta = (end_time - start_time);
-                    double rps = rn_d / delta.count();
-                    BOOST_LOG_TRIVIAL(info) << "processed records: " << rn << '\t' << rps << " reads/second";
-                    rn_d = 0;
-                    start_time = std::chrono::high_resolution_clock::now();
-                    if (rn > 1024*1024)
+                    if (tosser1)
                     {
-                        stop = true;
-                        return;
+                        tosser1->write(r1);
+                        tosser2->write(r2);
                     }
-                }
-                {
-                    //profile<true> P("kmerizing");
-
-                    xs.clear();
-                    kmers::make(std::get<1>(r1), K, [&](kmer p_x) {
-                        xs.push_back(p_x);
-                    });
-                    kmers::make(std::get<1>(r2), K, [&](kmer p_x) {
-                        xs.push_back(p_x);
-                    });
-                    std::sort(xs.begin(), xs.end());
-                }
-
-                size_t hits = 0;
-                {
-                    //profile<true> P("lookuping");
-
-                    Z.with_contains(xs, [&](const kmer p_x) {
-                        hits += 1;
-                    });
-                }
-
-                if (hits > 0)
-                {
-                    //profile<true> P("writing tosses");
-                    tosser1.write(r1);
-                    tosser2.write(r2);
                     tossed += 1;
                 }
                 else
                 {
-                    //profile<true> P("writing keeps");
                     keeper1.write(r1);
                     keeper2.write(r2);
                     kept += 1;
                 }
             });
 
-            if (0)
-            {
-                BOOST_LOG_TRIVIAL(info) << "kmer hits histogram:";
-                for (auto itr = hitHist.begin(); itr != hitHist.end(); ++itr)
-                {
-                    BOOST_LOG_TRIVIAL(info) << '\t' << itr->first << '\t' << itr->second;
-                    
-                }
-            }
             BOOST_LOG_TRIVIAL(info) << "finished";
             BOOST_LOG_TRIVIAL(info) << "reads kept: " << kept << "\t(" << (100*double(kept)/double(kept+tossed)) << "%)";
             BOOST_LOG_TRIVIAL(info) << "reads tossed: " << tossed << "\t(" << (100*double(tossed)/double(kept+tossed)) << "%)";
