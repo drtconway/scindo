@@ -15,3 +15,9 @@ set(Perya_SRC
     )
 PREPEND(Perya_SRC)
 set(Perya_SRC ${Perya_SRC} PARENT_SCOPE)
+
+set(Asya_SRC
+    asya.cpp
+    )
+PREPEND(Asya_SRC)
+set(Asya_SRC ${Asya_SRC} PARENT_SCOPE)

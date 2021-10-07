@@ -63,6 +63,20 @@ namespace scindo
                 std::swap(this->back(), x);
             }
         }
+
+        template <typename X>
+        static
+        typename std::enable_if<std::is_convertible<X,std::function<void(const std::vector<std::string>&)>>::value, void>::type
+        with(std::istream& p_in, X p_consumer)
+        {
+            //static_assert(std::is_convertible<X,std::function<void(const std::vector<std::string>&)>>::value);
+            detail::tsv_reader r(p_in);
+            std::vector<std::string> row;
+            while (r.next(row))
+            {
+                p_consumer(row);
+            }
+        }
     };
 }
 // namespace scindo

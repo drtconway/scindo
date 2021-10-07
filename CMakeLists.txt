@@ -76,6 +76,18 @@ target_link_libraries(
     ${Boost_LIBRARIES}
     Threads::Threads)
 
+add_executable(asya ${Asya_SRC})
+target_link_libraries(
+    asya
+    docopt
+    hts
+    sdsl divsufsort divsufsort64
+    ${ZLIB_LIBRARIES}
+    nlohmann_json::nlohmann_json
+    Boost::log_setup
+    ${Boost_LIBRARIES}
+    Threads::Threads)
+
 add_executable(perya ${Perya_SRC})
 target_link_libraries(
     perya

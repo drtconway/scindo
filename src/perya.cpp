@@ -1,22 +1,24 @@
 #include <iostream>
+#include <map>
 #include <queue>
 #include <random>
 #include <sstream>
 #include <unordered_map>
 #include <unordered_set>
 #include <execution>
+#include <boost/lexical_cast.hpp>
 #include <boost/log/trivial.hpp>
 #include <boost/log/utility/setup.hpp>
 #include <docopt/docopt.h>
 #include <nlohmann/json.hpp>
-#include <sdsl/sd_vector.hpp>
 #include "scindo/fasta.hpp"
+#include "scindo/fastq.hpp"
 #include "scindo/files.hpp"
-#include "scindo/gtf.hpp"
-#include "scindo/kmer_set.hpp"
+#include "scindo/stabby.hpp"
+#include "scindo/murmur3.hpp"
 #include "scindo/kmers.hpp"
 #include "scindo/profile.hpp"
-#include "scindo/stabby.hpp"
+#include "scindo/tsv.hpp"
 #include "scindo/summerizer.hpp"
 
 using namespace scindo;
@@ -24,50 +26,37 @@ using namespace scindo;
 namespace // anonymous
 {
     const char usage[] =
-R"(perya - in silico binning of reads
+R"(perya - exome panel detection
 
     Usage:
-      perya -X [options] <genome-fasta> <annotation>
+      perya -X [options] <index-name> <reference-fasta> <bed-file>...
+      perya [options] <index-name> <fastq1> <fastq2>
 
     Options:
-      -h --help                         Show this screen
+      -h, --help                        Show this screen
+      -k NUM, --kmer-size NUM           K-mer size to use [default: 25]
+      -S FRAC, --sample-kmers FRAC      Sub-sample given fraction of k-mers
 )";
 
-    using sparse_domain_ptr = std::shared_ptr<sparse_domain>;
-
-    struct item
+    struct succinct_kmer_set
     {
-        sparse_domain_ptr ptr;
-        size_t  idx;
-        uint64_t cur;
+        const sdsl::sd_vector<> X;
+        const kmer maxx;
 
-        item(const sparse_domain_ptr& p_ptr)
-            : ptr(p_ptr), idx(0)
+        succinct_kmer_set(const std::vector<kmer>& p_X)
+            : X(p_X.begin(), p_X.end()), maxx(p_X.size() > 0 ? p_X.back() : 0)
         {
-            if (idx < ptr->count())
+        }
+
+        bool contains(kmer x) const
+        {
+            if (x > maxx)
             {
-                cur = ptr->select(idx);
+                return false;
             }
+            return X[x];
         }
 
-        bool more() const
-        {
-            return idx < ptr->count();
-        }
-
-        void next()
-        {
-            ++idx;
-            if (idx < ptr->count())
-            {
-                cur = ptr->select(idx);
-            }
-        }
-
-        bool operator<(const item& other) const
-        {
-            return cur > other.cur;
-        }
     };
 
     std::string first_word(const std::string& p_str)
@@ -80,26 +69,342 @@ R"(perya - in silico binning of reads
         return p_str.substr(0, n);
     }
 
-    template <typename Vec, typename Itm>
-    size_t rank(const Vec& X, const Itm& x)
+    void remove_dups(const std::vector<kmer>& p_lhs, std::vector<kmer>& p_rhs)
     {
-        auto itr = std::lower_bound(X.begin(), X.end(), x);
-        return itr - X.begin();
+        auto lhsItr = p_lhs.begin();
+        auto rhsItr = p_rhs.begin();
+        auto writeItr = p_rhs.begin();
+        while (lhsItr != p_lhs.end() && rhsItr != p_rhs.end())
+        {
+            if (*lhsItr < *rhsItr)
+            {
+                ++lhsItr;
+                continue;
+            }
+            else if (*rhsItr < *lhsItr)
+            {
+                if (writeItr != rhsItr)
+                {
+                    *writeItr = *rhsItr;
+                }
+                ++writeItr;
+                ++rhsItr;
+            }
+            else // *rhsItr == *lhsItr
+            {
+                ++rhsItr;
+                ++lhsItr;
+            }
+        }
+        while (rhsItr != p_rhs.end())
+        {
+            if (writeItr != rhsItr)
+            {
+                *writeItr = *rhsItr;
+            }
+            ++writeItr;
+            ++rhsItr;
+        }
+        p_rhs.erase(writeItr, p_rhs.end());
     }
 
-    template <typename Vec, typename Itm>
-    bool contains(const Vec& X, const Itm& x)
+    bool sample(const double& prob, const kmer& p_x)
     {
-        auto itr = std::lower_bound(X.begin(), X.end(), x);
-        return itr != X.end() && *itr == x;
+        uint64_t u = murmur3(17).update(p_x)();
+        double p = 0.0;
+        double q = 0.5;
+        while (u > 0)
+        {
+            if ((u & 1) == 1)
+            {
+                p += q;
+            }
+            u >>= 1;
+            q /= 2;
+        }
+        return p < prob;
     }
 
-    template <typename Vec, typename Itm>
-    bool contains(const Vec& X, const Itm& x, size_t& rnk)
+    bool access_and_rank(const std::vector<kmer>& p_X, const kmer& p_x, size_t& p_rnk)
     {
-        auto itr = std::lower_bound(X.begin(), X.end(), x);
-        rnk = itr - X.begin();
-        return itr != X.end() && *itr == x;
+        auto itr = std::lower_bound(p_X.begin(), p_X.end(), p_x);
+        if (itr != p_X.end() && *itr == p_x)
+        {
+            p_rnk = itr - p_X.begin();
+            return true;
+        }
+        return false;
+    }
+
+    void write_index(std::ostream& p_out,
+                     const uint64_t& p_K,
+                     const std::vector<kmer>& p_kmers,
+                     const std::vector<uint16_t>& p_masks,
+                     const std::vector<std::string>& p_bed_names)
+    {
+        p_out.write(reinterpret_cast<const char*>(&p_K), sizeof(p_K));
+        const uint64_t N = p_kmers.size();
+        p_out.write(reinterpret_cast<const char*>(&N), sizeof(N));
+        p_out.write(reinterpret_cast<const char*>(p_kmers.data()), sizeof(kmer)*p_kmers.size());
+        p_out.write(reinterpret_cast<const char*>(p_masks.data()), sizeof(uint16_t)*p_masks.size());
+        const uint64_t M = p_bed_names.size();
+        p_out.write(reinterpret_cast<const char*>(&M), sizeof(M));
+        for (auto itr = p_bed_names.begin(); itr != p_bed_names.end(); ++itr)
+        {
+            const std::string& name = *itr;
+            const uint64_t L = name.size();
+            p_out.write(reinterpret_cast<const char*>(&L), sizeof(L));
+            p_out.write(name.data(), name.size());
+        }
+    }
+
+    void read_index(std::istream& p_in,
+                    uint64_t& p_K,
+                    std::vector<kmer>& p_kmers,
+                    std::vector<uint16_t>& p_masks,
+                    std::vector<std::string>& p_bed_names)
+    {
+        p_in.read(reinterpret_cast<char*>(&p_K), sizeof(p_K));
+        uint64_t N = 0;
+        p_in.read(reinterpret_cast<char*>(&N), sizeof(N));
+        p_kmers.resize(N);
+        p_in.read(reinterpret_cast<char*>(p_kmers.data()), sizeof(kmer)*p_kmers.size());
+        p_masks.resize(N);
+        p_in.read(reinterpret_cast<char*>(p_masks.data()), sizeof(uint16_t)*p_masks.size());
+        uint64_t M = 0;
+        p_in.read(reinterpret_cast<char*>(&M), sizeof(M));
+        p_bed_names.resize(M);
+        for (auto itr = p_bed_names.begin(); itr != p_bed_names.end(); ++itr)
+        {
+            std::string& name = *itr;
+            uint64_t L = 0;
+            p_in.read(reinterpret_cast<char*>(&L), sizeof(L));
+            name.resize(L);
+            p_in.read(name.data(), name.size());
+        }
+    }
+
+    template <typename X>
+    void collect(const std::vector<uint64_t>& xs, X p_acceptor)
+    {
+        static_assert(std::is_convertible<X, std::function<void(uint64_t,size_t)>>::value);
+        uint64_t x = 0;
+        uint64_t cnt = 0;
+        for(auto itr = xs.begin(); itr != xs.end(); ++itr)
+        {
+            if (*itr != x)
+            {
+                if (cnt > 0)
+                {
+                    p_acceptor(x, cnt);
+                }
+                x = *itr;
+                cnt = 0;
+            }
+            cnt += 1;
+        }
+        if (cnt > 0)
+        {
+            p_acceptor(x, cnt);
+        }
+    }
+
+    void jaccard(const std::vector<kmer>& p_allKmers, const std::vector<uint16_t>& p_allMasks,
+                 const std::vector<kmer>& p_xs, std::vector<std::pair<size_t,size_t>>& p_res)
+    {
+        size_t i = 0;
+        size_t j = 0;
+
+        while (i < p_allKmers.size() && j < p_xs.size())
+        {
+            kmer y = p_allKmers[i];
+            kmer x = p_xs[j];
+            uint64_t msk = p_allMasks[i];
+            if (y < x)
+            {
+                for (size_t p = 0; msk > 0 && p < p_res.size(); ++p, msk >>= 1)
+                {
+                    if (msk & 1)
+                    {
+                        p_res[p].second += 1;
+                    }
+                }
+                ++i;
+                continue;
+            }
+            if (x < y)
+            {
+                for (size_t p = 0; p < p_res.size(); ++p)
+                {
+                    p_res[p].second += 1;
+                }
+                ++j;
+                continue;
+            }
+            // x == y
+            for (size_t p = 0; msk > 0 && p < p_res.size(); ++p, msk >>= 1)
+            {
+                if (msk & 1)
+                {
+                    p_res[p].first += 1;
+                }
+                p_res[p].second += 1;
+            }
+            ++i;
+            ++j;
+        }
+        while (i < p_allKmers.size())
+        {
+            uint64_t msk = p_allMasks[i];
+            for (size_t p = 0; msk > 0 && p < p_res.size(); ++p, msk >>= 1)
+            {
+                if (msk & 1)
+                {
+                    p_res[p].second += 1;
+                }
+            }
+            ++i;
+        }
+        if (j < p_xs.size())
+        {
+            size_t n = p_xs.size() - j;
+            for (size_t p = 0; p < p_res.size(); ++p)
+            {
+                p_res[p].second += n;
+            }
+        }
+    }
+
+    int indexMain(const std::map<std::string, docopt::value>& p_opts)
+    {
+        const size_t K = p_opts.at("--kmer-size").asLong();
+        const std::string ref_name = p_opts.at("<reference-fasta>").asString();
+        const std::vector<std::string> beds = p_opts.at("<bed-file>").asStringList();
+        double frac = 1.0;
+        if (p_opts.at("--sample-kmers"))
+        {
+            frac = boost::lexical_cast<double>(p_opts.at("--sample-kmers").asString());
+        }
+
+        using locus = std::pair<uint32_t,uint32_t>;
+        using bed_nums = std::vector<size_t>;
+        std::unordered_map<std::string, std::map<locus,bed_nums>> loci;
+
+        for (size_t i = 0; i < beds.size(); ++i)
+        {
+            input_file_holder_ptr inp = files::in(beds[i]);
+            tsv::with(**inp, [&](const std::vector<std::string>& p_row) {
+                const std::string& chrom = p_row[0];
+                uint32_t st = boost::lexical_cast<uint32_t>(p_row[1]);
+                uint32_t en = boost::lexical_cast<uint32_t>(p_row[2]);
+                loci[chrom][locus(st,en)].push_back(i);
+            });
+        }
+
+        std::vector<kmer> allKmers;
+        {
+            std::vector<kmer> buffer;
+            input_file_holder_ptr in_ptr = files::in(ref_name);
+            for (scindo::seq::fasta_reader R(**in_ptr); R.more(); ++R)
+            {
+                const auto& r = *R;
+                const std::string chrom = first_word(r.first);
+                const auto& seq = r.second;
+                if (!loci.contains(chrom))
+                {
+                    continue;
+                }
+                BOOST_LOG_TRIVIAL(info) << "scanning (1st pass) " << chrom;
+                const auto itr = loci.find(chrom);
+                const auto& ivls = itr->second;
+
+                buffer.clear();
+                for (auto jtr = ivls.begin(); jtr != ivls.end(); ++jtr)
+                {
+                    const auto& ivl = jtr->first;
+                    const auto& bns = jtr->second;
+                    std::pair<std::string::const_iterator,std::string::const_iterator>
+                        bait{seq.begin()+ivl.first,
+                             seq.begin()+ivl.second};
+                    //std::cout << std::string(bait.first, bait.second) << std::endl;
+                    kmers::make(bait, K, [&](kmer p_x, kmer p_xb) {
+                        kmer xc = std::min(p_x, p_xb);
+                        //std::cout << kmers::render(K, xc) << '\t' << sample(frac, xc) << std::endl;
+                        if (sample(frac, xc))
+                        {
+                            buffer.push_back(p_x);
+                            buffer.push_back(p_xb);
+                        }
+                    });
+                }
+                std::sort(buffer.begin(), buffer.end());
+                buffer.erase(std::unique(buffer.begin(), buffer.end()), buffer.end());
+                //BOOST_LOG_TRIVIAL(info) << "distinct k-mers " << buffer.size();
+                remove_dups(allKmers, buffer);
+                //BOOST_LOG_TRIVIAL(info) << "new k-mers " << buffer.size();
+                allKmers.insert(allKmers.end(), buffer.begin(), buffer.end());
+                std::sort(allKmers.begin(), allKmers.end());
+            }
+        }
+
+        BOOST_LOG_TRIVIAL(info) << "total distinct k-mers " << allKmers.size();
+        std::vector<uint16_t> allMasks(allKmers.size());
+        {
+            input_file_holder_ptr in_ptr = files::in(ref_name);
+            for (scindo::seq::fasta_reader R(**in_ptr); R.more(); ++R)
+            {
+                const auto& r = *R;
+                const std::string chrom = first_word(r.first);
+                const auto& seq = r.second;
+                if (!loci.contains(chrom))
+                {
+                    continue;
+                }
+                BOOST_LOG_TRIVIAL(info) << "scanning (2nd pass) " << chrom;
+                const auto itr = loci.find(chrom);
+                const auto& ivls = itr->second;
+
+                for (auto jtr = ivls.begin(); jtr != ivls.end(); ++jtr)
+                {
+                    const auto& ivl = jtr->first;
+                    const auto& bns = jtr->second;
+                    uint64_t msk = 0;
+                    for (auto ktr = bns.begin(); ktr != bns.end(); ++ktr)
+                    {
+                        msk |= (1ULL << (*ktr));
+                    }
+                    std::pair<std::string::const_iterator,std::string::const_iterator>
+                        bait{seq.begin()+ivl.first,
+                             seq.begin()+ivl.second};
+                    kmers::make(bait, K, [&](kmer p_x, kmer p_xb) {
+                        size_t rnk = 0;
+                        if (access_and_rank(allKmers, p_x, rnk))
+                        {
+                            allMasks[rnk] |= msk;
+                        }
+                        if (access_and_rank(allKmers, p_xb, rnk))
+                        {
+                            allMasks[rnk] |= msk;
+                        }
+                    });
+                }
+            }
+            std::map<size_t,size_t> hist;
+            for (auto itr = allMasks.begin(); itr != allMasks.end(); ++itr)
+            {
+                hist[std::popcount(*itr)] += 1;
+            }
+            for (auto itr = hist.begin(); itr != hist.end(); ++itr)
+            {
+                BOOST_LOG_TRIVIAL(info) << "mask popcount " << itr->first << "\t" << itr->second;
+
+            }
+        }
+
+        output_file_holder_ptr out_ptr = files::out(p_opts.at("<index-name>").asString());
+        write_index(**out_ptr, K, allKmers, allMasks, beds);
+
+        return 0;
     }
 
     int main0(int argc, const char* argv[])
@@ -108,173 +413,98 @@ R"(perya - in silico binning of reads
         boost::log::add_common_attributes();
 
         std::map<std::string, docopt::value>
-            opts = docopt::docopt(usage, { argv + 1, argv + argc }, true, "scindo 0.1");
+            opts = docopt::docopt(usage, { argv + 1, argv + argc }, true, "perya 0.1");
 
         for (auto itr = opts.begin(); itr != opts.end(); ++itr)
         {
             BOOST_LOG_TRIVIAL(info) << itr->first << '\t' << itr->second;
         }
 
-        const size_t K = 23;
-        const size_t S = 64 - 2*K;
-        const uint64_t M = (1ULL << S) - 1;
-
-        std::unordered_map<std::string,std::unordered_map<std::string,std::vector<stabby::interval>>> exons;
-        std::vector<std::string> toc;
+        if (opts.at("-X").asBool())
         {
-            gtf::gtf_file G(opts.at("<annotation>").asString());
-            G.parse([&](const std::string& p_seqname, const std::string& p_source, const std::string& p_feature,
-                        const int64_t& p_start, const int64_t& p_end,
-                        const std::optional<double>& p_score, const char& p_strand,
-                        const std::optional<int>& p_frame, const std::vector<gtf::attribute>& p_attrs) {
-                if (p_feature != "exon")
-                {
-                    return;
-                }
-                // 0-based, half-open
-                stabby::interval ivl = {p_start - 1, p_end};
+            return indexMain(opts);
+        }
 
-                std::string gene_id;
-                for (auto itr = p_attrs.begin(); itr != p_attrs.end(); ++itr)
+        double frac = 1.0;
+        if (opts.at("--sample-kmers"))
+        {
+            frac = boost::lexical_cast<double>(opts.at("--sample-kmers").asString());
+        }
+
+        uint64_t K = 0;
+        std::vector<kmer> allKmers;
+        std::vector<uint16_t> allMasks;
+        std::vector<std::string> bedNames;
+
+        {
+            input_file_holder_ptr in_ptr = files::in(opts.at("<index-name>").asString());
+            read_index(**in_ptr, K, allKmers, allMasks, bedNames);
+        }
+
+        std::string fq1_name = opts.at("<fastq1>").asString();
+        std::string fq2_name = opts.at("<fastq2>").asString();
+
+        std::vector<kmer> xs;
+
+        size_t rn = 0;
+        fastq_reader::with(fq1_name, fq2_name, [&](const fastq_tuple& r1,
+                                                  const fastq_tuple& r2, bool& stop) {
+            rn += 1;
+
+            kmers::make(std::get<1>(r1), K, [&](kmer p_x, kmer p_xb) {
+                kmer xc = std::min(p_x, p_xb);
+                //std::cout << kmers::render(K, xc) << '\t' << sample(frac, xc) << std::endl;
+                if (sample(frac, xc))
                 {
-                    if (itr->first == "gene_id")
-                    {
-                        gene_id = std::get<std::string>(itr->second);
-                    }
+                    xs.push_back(xc);
                 }
-                if (gene_id.size() == 0)
-                {
-                    return;
-                }
-                exons[p_seqname][gene_id].push_back(ivl);
             });
-            for (auto itr = exons.begin(); itr != exons.end(); ++itr)
+            kmers::make(std::get<1>(r2), K, [&](kmer p_x, kmer p_xb) {
+                kmer xc = std::min(p_x, p_xb);
+                //std::cout << kmers::render(K, xc) << '\t' << sample(frac, xc) << std::endl;
+                if (sample(frac, xc))
+                {
+                    xs.push_back(xc);
+                }
+            });
+
+            constexpr size_t N = (1ULL << 20);
+            constexpr size_t M = N - 1;
+            if ((rn & M) == 0)
             {
-                const auto& chrom = itr->first;
-                auto& genes = itr->second;
-                for (auto jtr = genes.begin(); jtr != genes.end(); ++jtr)
-                {
-                    const auto& gene_id = jtr->first;
-                    auto& ivls = jtr->second;
-
-                    // Sort and remove duplicates
-                    //
-                    std::sort(ivls.begin(), ivls.end());
-                    ivls.erase(std::unique(ivls.begin(), ivls.end()), ivls.end());
-
-                    toc.push_back(gene_id);
-                }
-            }
-            std::sort(toc.begin(), toc.end());
-        }
-
-        std::vector<size_t> total(toc.size(), 0);
-
-        std::unordered_map<std::string,std::shared_ptr<sparse_domain>> X;
-        {
-            using str_range = std::pair<std::string::const_iterator,std::string::const_iterator>;
-
-            std::string ref_name = opts.at("<genome-fasta>").asString();
-            input_file_holder_ptr in_ptr = files::in(ref_name);
-            for (scindo::seq::fasta_reader R(**in_ptr); R.more(); ++R)
-            {
-                const auto& r = *R;
-                std::string chrom = first_word(r.first);
-                if (!exons.contains(chrom))
-                {
-                    continue;
-                }
-                BOOST_LOG_TRIVIAL(info) << "scanning chromosome " << chrom;
-                const auto& genes = exons.at(chrom);
-                std::vector<kmer> xs;
-                std::vector<kmer> ys;
-                for (auto itr = genes.begin(); itr != genes.end(); ++itr)
-                {
-                    const auto& gene_id = itr->first;
-                    const auto& ivls = itr->second;
-                    size_t rnk = 0;
-                    if (!contains(toc, gene_id, rnk))
-                    {
-                        throw std::logic_error("missing gene_id");
-                    }
-
-                    ys.clear();
-                    for (auto jtr = ivls.begin(); jtr != ivls.end(); ++jtr)
-                    {
-                        const auto& ivl = *jtr;
-                        str_range v{r.second.begin() + ivl.first, r.second.begin() + ivl.second};
-                        kmers::make(v, K, [&](kmer x, kmer xb) {
-                            ys.push_back((x << S) | rnk);
-                            ys.push_back((xb << S) | rnk);
-                        });
-                    }
-                    std::sort(std::execution::unseq, ys.begin(), ys.end());
-                    ys.erase(std::unique(ys.begin(), ys.end()), ys.end());
-                    xs.insert(xs.end(), ys.begin(), ys.end());
-                    total[rnk] = ys.size();
-                }
-                std::sort(std::execution::unseq, xs.begin(), xs.end());
+                std::sort(xs.begin(), xs.end());
                 xs.erase(std::unique(xs.begin(), xs.end()), xs.end());
-                X[chrom] = std::shared_ptr<sparse_domain>(new sparse_domain(xs.begin(), xs.end()));
-                size_t z = xs.size();
-                BOOST_LOG_TRIVIAL(info) << "k-mer count " << z;
-                size_t Z = size_in_bytes(X.at(chrom)->array)
-                            + size_in_bytes(X.at(chrom)->array_rank)
-                            + size_in_bytes(X.at(chrom)->array_select);
-                BOOST_LOG_TRIVIAL(info) << "succinct size " << Z;
-                BOOST_LOG_TRIVIAL(info) << "bytes/kmer " << (double(Z)/double(z));
-            }
-        }
 
-        std::vector<size_t> unique(toc.size(), 0);
-        size_t unique_count = 0;
-        {
-            std::priority_queue<item, std::vector<item>> items;
-            for (auto itr = X.begin(); itr != X.end(); ++itr)
-            {
-                items.push(item(itr->second));
-            }
+                std::vector<std::pair<size_t,size_t>> intersectionAndUnions;
+                intersectionAndUnions.resize(bedNames.size());
+                jaccard(allKmers, allMasks, xs, intersectionAndUnions);
 
-            kmer x = 0;
-            std::vector<size_t> gs;
-            while (items.size())
-            {
-                item w = items.top();
-                items.pop();
-                kmer y = w.cur >> S;
-                if (y != x)
+                double t = 0;
+                for (size_t i = 0; i < bedNames.size(); ++i)
                 {
-                    //std::cerr << "merge progress: " << kmers::render(K, x) << '\t' << nlohmann::json(gs) << std::endl;
-                    if (gs.size() == 1)
-                    {
-                        unique[gs.back()] += 1;
-                        unique_count += 1;
-                    }
-                    gs.clear();
-                    x = y;
+                    size_t jacI = intersectionAndUnions[i].first;
+                    size_t jacU = intersectionAndUnions[i].second;
+                    double jac = double(jacI)/double(jacU);
+                    t += jac;
                 }
-                gs.push_back(w.cur & M);
-                w.next();
-                if (w.more())
+
+                std::cout << "# " << rn << std::endl;
+                for (size_t i = 0; i < bedNames.size(); ++i)
                 {
-                    items.push(w);
+                    size_t jacI = intersectionAndUnions[i].first;
+                    size_t jacU = intersectionAndUnions[i].second;
+                    double jac = double(jacI)/double(jacU);
+                    std::cout << i
+                        << '\t' << jacI
+                        << '\t' << jacU
+                        << '\t' << jac
+                        << '\t' << (jac/t)
+                        << '\t' << bedNames[i]
+                        << std::endl;
                 }
+                xs.clear();
             }
-        }
-
-        {
-            for (size_t i = 0; i < toc.size(); ++i)
-            {
-                std::cout << i
-                    << '\t' << toc[i]
-                    << '\t' << total[i]
-                    << '\t' << unique[i]
-                    << '\t' << (double(unique[i])/double(total[i]))
-                    << std::endl;
-            }
-        }
-
-        profile<true>::report();
+        });
 
         return 0;
     }
@@ -293,4 +523,5 @@ int main(int argc, const char* argv[])
         std::cerr << e.what() << std::endl;;
         return -1;
     }
+
 }

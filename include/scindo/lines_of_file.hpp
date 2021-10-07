@@ -7,6 +7,7 @@
 #include <iostream>
 
 #include "scindo/concurrent_deque.hpp"
+#include "scindo/files.hpp"
 #include "scindo/gzip.hpp"
 
 namespace scindo
