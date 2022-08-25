@@ -121,6 +121,23 @@ namespace scindo
             return "ACGT"[p_x&3];
         }
 
+        template <typename Q>
+        static
+        kmer make(const Q& p_seq)
+        {
+            kmer x = 0;
+            for (auto s = detail::bounds<Q>::begin(p_seq); s != detail::bounds<Q>::end(p_seq); ++s)
+            {
+                kmer b;
+                if (!to_base(*s, b))
+                {
+                    return 0;
+                }
+                x = (x << 2) | b;
+            }
+            return x;
+        }
+
         template <typename Q, typename X>
         static
         typename std::enable_if<std::is_convertible<X,std::function<void(kmer)>>::value,void>::type

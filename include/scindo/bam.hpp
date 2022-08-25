@@ -175,6 +175,13 @@ namespace scindo
                 }
             }
 
+            std::string find_header(const std::string& p_hdr, const std::string& p_key) const
+            {
+                kstring_t s = {0, 0, 0};
+                int r = sam_hdr_find_tag_pos(header, p_hdr.c_str(), 0, p_key.c_str(), &s);
+                return (r == 0 ? s.s : "");
+            }
+
             bool next()
             {
                 int res = bam_read1(file->fp.bgzf, aln);

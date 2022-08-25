@@ -100,7 +100,20 @@ target_link_libraries(
     ${Boost_LIBRARIES}
     Threads::Threads)
 
-install(TARGETS scindo hecil perya
+add_executable(crispin ${Crispin_SRC})
+target_link_libraries(
+    crispin
+    PRIVATE
+    docopt
+    hts
+    sdsl divsufsort divsufsort64
+    ${ZLIB_LIBRARIES}
+    nlohmann_json::nlohmann_json
+    Boost::log_setup
+    ${Boost_LIBRARIES}
+    Threads::Threads)
+
+install(TARGETS scindo hecil perya crispin
         CONFIGURATIONS Release)
-install(TARGETS scindo hecil perya
+install(TARGETS scindo hecil perya crispin
         CONFIGURATIONS RelWithDebInfo)

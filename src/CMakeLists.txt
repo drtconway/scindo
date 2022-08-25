@@ -21,3 +21,9 @@ set(Asya_SRC
     )
 PREPEND(Asya_SRC)
 set(Asya_SRC ${Asya_SRC} PARENT_SCOPE)
+
+set(Crispin_SRC
+    crispin.cpp
+    )
+PREPEND(Crispin_SRC)
+set(Crispin_SRC ${Crispin_SRC} PARENT_SCOPE)
