@@ -1,0 +1,65 @@
+FROM ubuntu:jammy AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+ADD proxy.crt /usr/share/ca-certificates/proxy.crt
+ADD 000-add-proxy-cert /etc/apt/apt.conf.d/000-add-proxy-cert
+
+RUN apt update
+
+RUN apt install -y ca-certificates
+ADD proxy.crt /usr/share/ca-certificates/proxy.crt
+RUN update-ca-certificates
+ENV SSL_CERT_FILE=/usr/share/ca-certificates/proxy.crt
+
+RUN apt install -y \
+        cmake \
+        g++ \
+        gdb \
+        git \
+        pkg-config \
+        samtools \
+        nlohmann-json3-dev \
+        libboost-iostreams-dev \
+        libboost-log-dev \
+        libdocopt-dev \
+        libhts-dev \
+        libz-dev \
+        catch2
+
+# This may be needed to work around git compiled with buggy versions of GNU SSL
+#
+#ADD git_2.34.1-1ubuntu1.4_amd64.deb /tmp/git_2.34.1-1ubuntu1.4_amd64.deb
+#RUN dpkg -i /tmp/git_2.34.1-1ubuntu1.4_amd64.deb
+
+RUN git clone https://github.com/taocpp/PEGTL.git && \
+    cd PEGTL && \
+    git checkout 3.2.0 && \
+    mkdir build && \
+    cd build && \
+    cmake .. && \
+    make -j4 && \
+    make install && \
+    cd ../.. && \
+    rm -rf PEGTL
+
+RUN git clone https://github.com/simongog/sdsl-lite.git && \
+    cd sdsl-lite && \
+    ./install.sh /usr/local && \
+    cd .. && \
+    rm -rf sdsl-lite
+
+ADD . /source
+RUN cd /source && \
+    mkdir -p ./build && \
+    cd build && \
+    cmake .. && \
+    make && \
+    make test && \
+    make install && \
+    ../docker/gather.sh /usr/local/bin/crispin
+
+FROM ubuntu:latest
+COPY --from=builder /source/build/gathered.tar /
+RUN tar -vx -C / -f /gathered.tar && \
+    rm /gathered.tar
