@@ -3,7 +3,7 @@ FROM ubuntu:jammy AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 
 ADD proxy.crt /usr/share/ca-certificates/proxy.crt
-ADD 000-add-proxy-cert /etc/apt/apt.conf.d/000-add-proxy-cert
+ADD docker/000-add-proxy-cert /etc/apt/apt.conf.d/000-add-proxy-cert
 
 RUN apt update
 
