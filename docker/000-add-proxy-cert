@@ -1,0 +1,3 @@
+Acquire::https {
+    CAInfo "/usr/share/ca-certificates/proxy.crt";
+}
