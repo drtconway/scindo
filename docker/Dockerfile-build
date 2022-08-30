@@ -57,7 +57,7 @@ RUN cd /source && \
     make && \
     make test && \
     make install && \
-    ../docker/gather.sh /usr/local/bin/crispin
+    ../docker/gather.sh /usr/local/bin/fraggle
 
 FROM ubuntu:latest
 COPY --from=builder /source/build/gathered.tar /

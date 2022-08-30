@@ -126,7 +126,7 @@ target_link_libraries(
     Threads::Threads)
     
 
-install(TARGETS scindo hecil perya crispin
+install(TARGETS scindo hecil perya crispin fraggle
         CONFIGURATIONS Release)
-install(TARGETS scindo hecil perya crispin
+install(TARGETS scindo hecil perya crispin fraggle
         CONFIGURATIONS RelWithDebInfo)
