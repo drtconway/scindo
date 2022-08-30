@@ -275,10 +275,10 @@ namespace scindo
             }
         }
 
-        template <class X>
+        template <typename Q, typename X>
         static
         typename std::enable_if<std::is_convertible<X,std::function<void(size_t,kmer,kmer)>>::value,void>::type
-        make(const std::string& p_seq, const size_t& p_k, X p_acceptor)
+        make(const Q& p_seq, const size_t& p_k, X p_acceptor)
         {
             const kmer M = (1ULL << (2*p_k)) - 1;
             const size_t S = 2*(p_k - 1);
@@ -286,7 +286,7 @@ namespace scindo
             kmer xb = 0;
             size_t i = 0;
             size_t j = 0;
-            for (auto s = p_seq.begin(); s != p_seq.end(); ++s, ++i)
+            for (auto s = detail::bounds<Q>::begin(p_seq); s != detail::bounds<Q>::end(p_seq); ++s, ++i)
             {
                 kmer b;
                 if (!to_base(*s, b))

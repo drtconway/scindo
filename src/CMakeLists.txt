@@ -27,3 +27,9 @@ set(Crispin_SRC
     )
 PREPEND(Crispin_SRC)
 set(Crispin_SRC ${Crispin_SRC} PARENT_SCOPE)
+
+set(Fraggle_SRC
+    fraggle.cpp
+    )
+PREPEND(Fraggle_SRC)
+set(Fraggle_SRC ${Fraggle_SRC} PARENT_SCOPE)
