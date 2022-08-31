@@ -36,7 +36,7 @@ namespace scindo
             static void trim(std::string& p_str)
             {
                 if (p_str.size() > 0 && isspace(p_str[0])) {
-                    boost::algorithm::trim(p_str);
+                    boost::algorithm::trim_if(p_str, isspace);
                     return;
                 }
                 
@@ -247,7 +247,7 @@ namespace scindo
                 throw std::domain_error("missing read identifier line.");
             }
 
-            boost::algorithm::trim(m_next);
+            detail::text_helpers::trim(m_next);
             std::string& id1 = std::get<0>(m_curr);
             id1.clear();
             id1.insert(id1.end(), m_next.begin() + 1, m_next.end()); // drop the @
@@ -257,7 +257,7 @@ namespace scindo
                 throw std::domain_error("missing read sequence line.");
             }
 
-            boost::algorithm::trim(m_next);
+            detail::text_helpers::trim(m_next);
             std::string& seq = std::get<1>(m_curr);
             seq.clear();
             seq.insert(seq.end(), m_next.begin(), m_next.end());
@@ -267,7 +267,7 @@ namespace scindo
                 throw std::domain_error("missing read spacer line.");
             }
 
-            boost::algorithm::trim(m_next);
+            detail::text_helpers::trim(m_next);
             std::string& id2 = std::get<2>(m_curr);
             id2.clear();
             id2.insert(id2.end(), m_next.begin() + 1, m_next.end()); // drop the +
@@ -277,7 +277,7 @@ namespace scindo
                 throw std::domain_error("missing read quality score line.");
             }
 
-            boost::algorithm::trim(m_next);
+            detail::text_helpers::trim(m_next);
             std::string& qual = std::get<3>(m_curr);
             qual.clear();
             qual.insert(qual.end(), m_next.begin(), m_next.end());

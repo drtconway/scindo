@@ -283,6 +283,7 @@ struct fwd_and_rev_distr {
 };
 
 struct distr_state {
+  size_t K;
   std::string sample;
   distr global;
   fwd_and_rev_distr read1;
@@ -290,6 +291,7 @@ struct distr_state {
 
   static distr_state from_counts(const counts_state& cts) {
     distr_state res;
+    res.K = cts.K;
     res.sample = cts.sample;
     res.global = compute_distr(counts_add(cts.read1.sum(), cts.read2.sum()));
     res.read1 = fwd_and_rev_distr::from_counts(cts.read1);
@@ -299,6 +301,7 @@ struct distr_state {
 
   nlohmann::json to_json() const {
     nlohmann::json res = nlohmann::json::object();
+    res["K"] = K;
     res["sample"] = sample;
     res["global"] = global;
     res["read1"] = read1.to_json();
@@ -308,6 +311,7 @@ struct distr_state {
 
   static distr_state from_json(const nlohmann::json& p_json) {
     distr_state res;
+    res.K = p_json["K"];
     res.sample = p_json["sample"];
     res.global = p_json["global"].get<std::vector<double>>();
     res.read1 = fwd_and_rev_distr::from_json(p_json["read1"]);
@@ -343,14 +347,10 @@ int main_merge(std::map<std::string, docopt::value>& opts)
     for (size_t i = 0; i < dst.read1.fwd.size(); ++i) {
       double kldFwd = klDivergence(dst.read1.fwd[i], global.global);
       gam.add(kldFwd);
-      double kldRev = klDivergence(dst.read1.rev[i], global.global);
-      gam.add(kldRev);
     }
     for (size_t i = 0; i < dst.read2.fwd.size(); ++i) {
       double kldFwd = klDivergence(dst.read2.fwd[i], global.global);
       gam.add(kldFwd);
-      double kldRev = klDivergence(dst.read2.rev[i], global.global);
-      gam.add(kldRev);
     }
   }
 
@@ -358,6 +358,7 @@ int main_merge(std::map<std::string, docopt::value>& opts)
   const double thetaHat = gam.thetaHat();
   gamma_distribution<> GammaDist(kHat, thetaHat);
 
+  std::cout << "sample\tread\tpos\tkld\tpval" << std::endl;
   for (size_t n = 0; n < names.size(); ++n) {
     BOOST_LOG_TRIVIAL(info) << "scoring " << names[n];
     counts_state cts = counts_state::load(names[n]);
@@ -365,29 +366,21 @@ int main_merge(std::map<std::string, docopt::value>& opts)
     for (size_t i = 0; i < dst.read1.fwd.size(); ++i) {
       double kldFwd = klDivergence(dst.read1.fwd[i], global.global);
       double pvalFwd = cdf(complement(GammaDist, kldFwd));
-      double kldRev = klDivergence(dst.read1.rev[i], global.global);
-      double pvalRev = cdf(complement(GammaDist, kldRev));
       std::cout << dst.sample
         << '\t' << "R1"
         << '\t' << i
         << '\t' << kldFwd
         << '\t' << pvalFwd
-        << '\t' << kldRev
-        << '\t' << pvalRev
         << std::endl;
     }
     for (size_t i = 0; i < dst.read2.fwd.size(); ++i) {
       double kldFwd = klDivergence(dst.read2.fwd[i], global.global);
       double pvalFwd = cdf(complement(GammaDist, kldFwd));
-      double kldRev = klDivergence(dst.read2.rev[i], global.global);
-      double pvalRev = cdf(complement(GammaDist, kldRev));
       std::cout << dst.sample
         << '\t' << "R2"
         << '\t' << i
         << '\t' << kldFwd
         << '\t' << pvalFwd
-        << '\t' << kldRev
-        << '\t' << pvalRev
         << std::endl;
     }
   }
@@ -446,7 +439,7 @@ int main0(int argc, const char *argv[]) {
       const fastq_text& lhsSeq = std::get<1>(lhsRead);
       size_t curR1Len = (lhsSeq.second - lhsSeq.first) - K + 1;
       if (curR1Len > r1Len) {
-        while (cts.read1.fwd.size() <= curR1Len) {
+        while (cts.read1.fwd.size() < curR1Len) {
           cts.read1.fwd.push_back(counts(J, 0));
           cts.read1.rev.push_back(counts(J, 0));
         }
@@ -460,7 +453,7 @@ int main0(int argc, const char *argv[]) {
       const fastq_text& rhsSeq = std::get<1>(rhsRead);
       size_t curR2Len = (rhsSeq.second - rhsSeq.first) - K + 1;
       if (curR2Len > r2Len) {
-        while (cts.read2.fwd.size() <= curR2Len) {
+        while (cts.read2.fwd.size() < curR2Len) {
           cts.read2.fwd.push_back(counts(J, 0));
           cts.read2.rev.push_back(counts(J, 0));
         }
@@ -552,14 +545,10 @@ int main0(int argc, const char *argv[]) {
   for (size_t i = 0; i < dist.read1.fwd.size(); ++i) {
     double kldFwd = klDivergence(dist.read1.fwd[i], dist.global);
     gam.add(kldFwd);
-    double kldRev = klDivergence(dist.read1.rev[i], dist.global);
-    gam.add(kldRev);
   }
   for (size_t i = 0; i < dist.read2.fwd.size(); ++i) {
     double kldFwd = klDivergence(dist.read2.fwd[i], dist.global);
     gam.add(kldFwd);
-    double kldRev = klDivergence(dist.read2.rev[i], dist.global);
-    gam.add(kldRev);
   }
 
   const double kHat = gam.kHat();
@@ -567,32 +556,25 @@ int main0(int argc, const char *argv[]) {
 
   gamma_distribution<> GammaDist(kHat, thetaHat);
 
+  std::cout << "read\tpos\tkld\tpval" << std::endl;
   for (size_t i = 0; i < dist.read1.fwd.size(); ++i) {
     double kldFwd = klDivergence(dist.read1.fwd[i], dist.global);
     double pvalFwd = cdf(complement(GammaDist, kldFwd));
-    double kldRev = klDivergence(dist.read1.rev[i], dist.global);
-    double pvalRev = cdf(complement(GammaDist, kldRev));
-    std::cout
+    std::cout << dist.sample
       << '\t' << "R1"
       << '\t' << i
       << '\t' << kldFwd
       << '\t' << pvalFwd
-      << '\t' << kldRev
-      << '\t' << pvalRev
       << std::endl;
   }
   for (size_t i = 0; i < dist.read2.fwd.size(); ++i) {
     double kldFwd = klDivergence(dist.read2.fwd[i], dist.global);
     double pvalFwd = cdf(complement(GammaDist, kldFwd));
-    double kldRev = klDivergence(dist.read2.rev[i], dist.global);
-    double pvalRev = cdf(complement(GammaDist, kldRev));
-    std::cout
+    std::cout << dist.sample
       << '\t' << "R2"
       << '\t' << i
       << '\t' << kldFwd
       << '\t' << pvalFwd
-      << '\t' << kldRev
-      << '\t' << pvalRev
       << std::endl;
   }
 
