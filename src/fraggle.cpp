@@ -31,8 +31,8 @@ const char usage[] =
     R"(fraggle - detecting k-mer bias in reads.
 
     Usage:
-      fraggle [options] (<fastq1> <fastq2>)...
-      fraggle --combine [options] <counts>...
+      fraggle count [options] (<fastq1> <fastq2>)...
+      fraggle score [options] <counts>...
 
     Options:
       -h, --help                    Show this help message
@@ -369,7 +369,7 @@ int main_merge(std::map<std::string, docopt::value>& opts)
   gamma_distribution<> GammaDist(kHat, thetaHat);
 
   if (opts["--output-file"].asString() != "/dev/null") {
-    output_file_holder_ptr outp = files::out(opts["--output-fie"].asString());
+    output_file_holder_ptr outp = files::out(opts["--output-file"].asString());
     std::ostream& out = **outp;
 
     out << "sample\tread\tpos\tkld\tpval" << std::endl;
@@ -403,23 +403,7 @@ int main_merge(std::map<std::string, docopt::value>& opts)
   return 0;
 }
 
-int main0(int argc, const char *argv[]) {
-  boost::log::add_console_log(
-      std::cerr, boost::log::keywords::format =
-                     "[%TimeStamp%] [%ThreadID%] [%Severity%] %Message%");
-  boost::log::add_common_attributes();
-
-  std::map<std::string, docopt::value> opts =
-      docopt::docopt(usage, {argv + 1, argv + argc}, true, "fraggle 0.1");
-
-  for (auto itr = opts.begin(); itr != opts.end(); ++itr) {
-    BOOST_LOG_TRIVIAL(info) << itr->first << '\t' << itr->second;
-  }
-
-  if (opts["--combine"].asBool()) {
-    return main_merge(opts);
-  }
-
+int main_count(std::map<std::string, docopt::value>& opts) {
   const size_t K = opts["-k"].asLong();
   const size_t J = 1ULL << (2*K);
 
@@ -598,10 +582,31 @@ int main0(int argc, const char *argv[]) {
         << '\t' << pvalFwd
         << std::endl;
     }
+  }
+  return 0;
+}
 
+int main0(int argc, const char *argv[]) {
+  boost::log::add_console_log(
+      std::cerr, boost::log::keywords::format =
+                     "[%TimeStamp%] [%ThreadID%] [%Severity%] %Message%");
+  boost::log::add_common_attributes();
+
+  std::map<std::string, docopt::value> opts =
+      docopt::docopt(usage, {argv + 1, argv + argc}, true, "fraggle 0.1");
+
+  for (auto itr = opts.begin(); itr != opts.end(); ++itr) {
+    BOOST_LOG_TRIVIAL(info) << itr->first << '\t' << itr->second;
   }
 
-  return 0;
+  if (opts["score"].asBool()) {
+    return main_merge(opts);
+  }
+  if (opts["count"].asBool()) {
+    return main_count(opts);
+  }
+
+  return 1;
 }
 
 } // namespace
