@@ -35,13 +35,14 @@ const char usage[] =
       fraggle --combine [options] <counts>...
 
     Options:
-      -h, --help                  Show this help message
-      -k SIZE                     k-mer size [default: 6]
-      --sample ID                 Label for the sample.
-      --raw-counts FILE           Output the raw k-mer/position/strand count matrix.
-      --raw-distributions FILE    Output the raw k-mer/position/strand fraction matrix.
-      --save-counts FILE          Save the count data as a JSON object.
-      --save-distributions FILE   Save the distribution data as a JSON object.
+      -h, --help                    Show this help message
+      -k SIZE                       k-mer size [default: 6]
+      --sample ID                   Label for the sample.
+      --raw-counts FILE             Output the raw k-mer/position/strand count matrix.
+      --raw-distributions FILE      Output the raw k-mer/position/strand fraction matrix.
+      --save-counts FILE            Save the count data as a JSON object.
+      --save-distributions FILE     Save the distribution data as a JSON object.
+      -o FILE, --output-file FILE   File to write the final output to [default: -]
 )";
 
 std::string longest_common_prefix(const std::string& a, const std::string& b) {
@@ -76,6 +77,15 @@ std::string longest_common_prefix(const std::vector<std::string>& p_strings) {
     tmp.push_back(p_strings[i]);
   }
   return longest_common_prefix(tmp);
+}
+
+std::string chop_left(const std::string& p_orig, char p_ch) {
+  size_t lhs = 0;
+  size_t pos = 0;
+  while (lhs < p_orig.size() && (pos = p_orig.find(p_ch, lhs)) != std::string::npos) {
+    lhs = pos + 1;
+  }
+  return std::string(p_orig.begin() + lhs, p_orig.end());
 }
 
 struct gamma_estimator_state {
@@ -358,30 +368,35 @@ int main_merge(std::map<std::string, docopt::value>& opts)
   const double thetaHat = gam.thetaHat();
   gamma_distribution<> GammaDist(kHat, thetaHat);
 
-  std::cout << "sample\tread\tpos\tkld\tpval" << std::endl;
-  for (size_t n = 0; n < names.size(); ++n) {
-    BOOST_LOG_TRIVIAL(info) << "scoring " << names[n];
-    counts_state cts = counts_state::load(names[n]);
-    distr_state dst = distr_state::from_counts(cts);
-    for (size_t i = 0; i < dst.read1.fwd.size(); ++i) {
-      double kldFwd = klDivergence(dst.read1.fwd[i], global.global);
-      double pvalFwd = cdf(complement(GammaDist, kldFwd));
-      std::cout << dst.sample
-        << '\t' << "R1"
-        << '\t' << i
-        << '\t' << kldFwd
-        << '\t' << pvalFwd
-        << std::endl;
-    }
-    for (size_t i = 0; i < dst.read2.fwd.size(); ++i) {
-      double kldFwd = klDivergence(dst.read2.fwd[i], global.global);
-      double pvalFwd = cdf(complement(GammaDist, kldFwd));
-      std::cout << dst.sample
-        << '\t' << "R2"
-        << '\t' << i
-        << '\t' << kldFwd
-        << '\t' << pvalFwd
-        << std::endl;
+  if (opts["--output-file"].asString() != "/dev/null") {
+    output_file_holder_ptr outp = files::out(opts["--output-fie"].asString());
+    std::ostream& out = **outp;
+
+    out << "sample\tread\tpos\tkld\tpval" << std::endl;
+    for (size_t n = 0; n < names.size(); ++n) {
+      BOOST_LOG_TRIVIAL(info) << "scoring " << names[n];
+      counts_state cts = counts_state::load(names[n]);
+      distr_state dst = distr_state::from_counts(cts);
+      for (size_t i = 0; i < dst.read1.fwd.size(); ++i) {
+        double kldFwd = klDivergence(dst.read1.fwd[i], global.global);
+        double pvalFwd = cdf(complement(GammaDist, kldFwd));
+        out << dst.sample
+          << '\t' << "R1"
+          << '\t' << i
+          << '\t' << kldFwd
+          << '\t' << pvalFwd
+          << std::endl;
+      }
+      for (size_t i = 0; i < dst.read2.fwd.size(); ++i) {
+        double kldFwd = klDivergence(dst.read2.fwd[i], global.global);
+        double pvalFwd = cdf(complement(GammaDist, kldFwd));
+        out << dst.sample
+          << '\t' << "R2"
+          << '\t' << i
+          << '\t' << kldFwd
+          << '\t' << pvalFwd
+          << std::endl;
+      }
     }
   }
 
@@ -423,8 +438,10 @@ int main0(int argc, const char *argv[]) {
     while (sample.size() > 0 && trim.contains(sample.back())) {
       sample.pop_back();
     }
+    sample = chop_left(sample, '/');
     cts.sample = sample;
   }
+  BOOST_LOG_TRIVIAL(info) << "sample = " << cts.sample;
 
   size_t rn = 0;
   size_t r1Len = 0;
@@ -556,26 +573,32 @@ int main0(int argc, const char *argv[]) {
 
   gamma_distribution<> GammaDist(kHat, thetaHat);
 
-  std::cout << "read\tpos\tkld\tpval" << std::endl;
-  for (size_t i = 0; i < dist.read1.fwd.size(); ++i) {
-    double kldFwd = klDivergence(dist.read1.fwd[i], dist.global);
-    double pvalFwd = cdf(complement(GammaDist, kldFwd));
-    std::cout << dist.sample
-      << '\t' << "R1"
-      << '\t' << i
-      << '\t' << kldFwd
-      << '\t' << pvalFwd
-      << std::endl;
-  }
-  for (size_t i = 0; i < dist.read2.fwd.size(); ++i) {
-    double kldFwd = klDivergence(dist.read2.fwd[i], dist.global);
-    double pvalFwd = cdf(complement(GammaDist, kldFwd));
-    std::cout << dist.sample
-      << '\t' << "R2"
-      << '\t' << i
-      << '\t' << kldFwd
-      << '\t' << pvalFwd
-      << std::endl;
+  if (opts["--output-file"].asString() != "/dev/null") {
+    output_file_holder_ptr outp = files::out(opts["--output-fie"].asString());
+    std::ostream& out = **outp;
+
+    out << "read\tpos\tkld\tpval" << std::endl;
+    for (size_t i = 0; i < dist.read1.fwd.size(); ++i) {
+      double kldFwd = klDivergence(dist.read1.fwd[i], dist.global);
+      double pvalFwd = cdf(complement(GammaDist, kldFwd));
+      out << dist.sample
+        << '\t' << "R1"
+        << '\t' << i
+        << '\t' << kldFwd
+        << '\t' << pvalFwd
+        << std::endl;
+    }
+    for (size_t i = 0; i < dist.read2.fwd.size(); ++i) {
+      double kldFwd = klDivergence(dist.read2.fwd[i], dist.global);
+      double pvalFwd = cdf(complement(GammaDist, kldFwd));
+      out << dist.sample
+        << '\t' << "R2"
+        << '\t' << i
+        << '\t' << kldFwd
+        << '\t' << pvalFwd
+        << std::endl;
+    }
+
   }
 
   return 0;
