@@ -9,6 +9,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <set>
 #include <nlohmann/json.hpp>
 
 #include "scindo/bam.hpp"
@@ -34,12 +35,48 @@ const char usage[] =
       fraggle --combine [options] <counts>...
 
     Options:
-      -h, --help                Show this help message
-      -k SIZE                   k-mer size [default: 6]
-      --raw-counts FILE         Output the raw k-mer/position/strand count matrix.
-      --raw-distributions FILE  Output the raw k-mer/position/strand fraction matrix.
-      --save-counts FILE        Save the count data as a JSON object.
+      -h, --help                  Show this help message
+      -k SIZE                     k-mer size [default: 6]
+      --sample ID                 Label for the sample.
+      --raw-counts FILE           Output the raw k-mer/position/strand count matrix.
+      --raw-distributions FILE    Output the raw k-mer/position/strand fraction matrix.
+      --save-counts FILE          Save the count data as a JSON object.
+      --save-distributions FILE   Save the distribution data as a JSON object.
 )";
+
+std::string longest_common_prefix(const std::string& a, const std::string& b) {
+  const size_t n = std::min(a.size(), b.size());
+  std::string res;
+  res.reserve(n);
+  for (size_t i = 0; i < n; ++i) {
+    if (a[i] == b[i]) {
+      res.push_back(a[i]);
+    } else {
+      break;
+    }
+  }
+  return res;
+}
+
+std::string longest_common_prefix(const std::vector<std::string>& p_strings) {
+  if (p_strings.size() == 1) {
+    return p_strings.front();
+  }
+  if (p_strings.size() == 2) {
+    return longest_common_prefix(p_strings[0], p_strings[1]);
+  }
+  std::vector<std::string> tmp;
+  const size_t n = p_strings.size();
+  size_t i = 0;
+  while (i+1 < n) {
+    tmp.push_back(longest_common_prefix(p_strings[i], p_strings[i+1]));
+    i += 2;
+  }
+  if (i < n) {
+    tmp.push_back(p_strings[i]);
+  }
+  return longest_common_prefix(tmp);
+}
 
 struct gamma_estimator_state {
   size_t N;
@@ -180,6 +217,7 @@ struct fwd_and_rev_counts {
 
 struct counts_state {
   size_t K;
+  std::string sample;
   fwd_and_rev_counts read1;
   fwd_and_rev_counts read2;
 
@@ -195,6 +233,7 @@ struct counts_state {
   nlohmann::json to_json() const {
     nlohmann::json res = nlohmann::json::object();
     res["K"] = K;
+    res["sample"] = sample;
     res["read1"] = read1.to_json();
     res["read2"] = read2.to_json();
     return res;
@@ -203,6 +242,7 @@ struct counts_state {
   static counts_state from_json(const nlohmann::json& p_json) {
     counts_state res;
     res.K = p_json["K"];
+    res.sample = p_json["sample"];
     res.read1 = fwd_and_rev_counts::from_json(p_json["read1"]);
     res.read2 = fwd_and_rev_counts::from_json(p_json["read2"]);
     return res;
@@ -234,8 +274,8 @@ struct fwd_and_rev_distr {
     return res;
   }
 
-  static fwd_and_rev_counts from_json(const nlohmann::json& p_json) {
-    fwd_and_rev_counts res;
+  static fwd_and_rev_distr from_json(const nlohmann::json& p_json) {
+    fwd_and_rev_distr res;
     res.fwd = p_json["fwd"];
     res.rev = p_json["rev"];
     return res;
@@ -243,15 +283,35 @@ struct fwd_and_rev_distr {
 };
 
 struct distr_state {
+  std::string sample;
   distr global;
   fwd_and_rev_distr read1;
   fwd_and_rev_distr read2;
 
   static distr_state from_counts(const counts_state& cts) {
     distr_state res;
+    res.sample = cts.sample;
     res.global = compute_distr(counts_add(cts.read1.sum(), cts.read2.sum()));
     res.read1 = fwd_and_rev_distr::from_counts(cts.read1);
     res.read2 = fwd_and_rev_distr::from_counts(cts.read2);
+    return res;
+  }
+
+  nlohmann::json to_json() const {
+    nlohmann::json res = nlohmann::json::object();
+    res["sample"] = sample;
+    res["global"] = global;
+    res["read1"] = read1.to_json();
+    res["read2"] = read2.to_json();
+    return res;
+  }
+
+  static distr_state from_json(const nlohmann::json& p_json) {
+    distr_state res;
+    res.sample = p_json["sample"];
+    res.global = p_json["global"].get<std::vector<double>>();
+    res.read1 = fwd_and_rev_distr::from_json(p_json["read1"]);
+    res.read2 = fwd_and_rev_distr::from_json(p_json["read2"]);
     return res;
   }
 };
@@ -307,7 +367,7 @@ int main_merge(std::map<std::string, docopt::value>& opts)
       double pvalFwd = cdf(complement(GammaDist, kldFwd));
       double kldRev = klDivergence(dst.read1.rev[i], global.global);
       double pvalRev = cdf(complement(GammaDist, kldRev));
-      std::cout << names[n]
+      std::cout << dst.sample
         << '\t' << "R1"
         << '\t' << i
         << '\t' << kldFwd
@@ -321,7 +381,7 @@ int main_merge(std::map<std::string, docopt::value>& opts)
       double pvalFwd = cdf(complement(GammaDist, kldFwd));
       double kldRev = klDivergence(dst.read2.rev[i], global.global);
       double pvalRev = cdf(complement(GammaDist, kldRev));
-      std::cout << names[n]
+      std::cout << dst.sample
         << '\t' << "R2"
         << '\t' << i
         << '\t' << kldFwd
@@ -360,8 +420,22 @@ int main0(int argc, const char *argv[]) {
 
   counts_state cts;
   cts.K = K;
+  if (opts["--sample"]) {
+    cts.sample = opts["--sample"].asString();
+  } else {
+    std::vector<std::string> labs(fns1.begin(), fns1.end());
+    labs.insert(labs.end(), fns2.begin(), fns2.end());
+    std::string sample = longest_common_prefix(labs);
+    const std::set<char> trim{'_', '.', '-', '/'};
+    while (sample.size() > 0 && trim.contains(sample.back())) {
+      sample.pop_back();
+    }
+    cts.sample = sample;
+  }
 
   size_t rn = 0;
+  size_t r1Len = 0;
+  size_t r2Len = 0;
   for (size_t i = 0; i < fns1.size(); ++i) {
     BOOST_LOG_TRIVIAL(info) << "scanning " << fns1[i] << " & " << fns2[i];
     fastq_reader::with(fns1[i], fns2[i], [&](const fastq_tuple& lhsRead, const fastq_tuple& rhsRead, bool& stop) {
@@ -370,25 +444,30 @@ int main0(int argc, const char *argv[]) {
         BOOST_LOG_TRIVIAL(info) << "reads processed: " << rn;
       }
       const fastq_text& lhsSeq = std::get<1>(lhsRead);
-      kmers::make(lhsSeq, K, [&](size_t pos, kmer x, kmer xb) {
-        while (cts.read1.fwd.size() <= pos) {
+      size_t curR1Len = (lhsSeq.second - lhsSeq.first) - K + 1;
+      if (curR1Len > r1Len) {
+        while (cts.read1.fwd.size() <= curR1Len) {
           cts.read1.fwd.push_back(counts(J, 0));
-        }
-        cts.read1.fwd[pos][x] += 1;
-        while (cts.read1.rev.size() <= pos) {
           cts.read1.rev.push_back(counts(J, 0));
         }
+        r1Len = curR1Len;
+      }
+      kmers::make(lhsSeq, K, [&](size_t pos, kmer x, kmer xb) {
+        cts.read1.fwd[pos][x] += 1;
         cts.read1.rev[pos][xb] += 1;
       });
+
       const fastq_text& rhsSeq = std::get<1>(rhsRead);
-      kmers::make(rhsSeq, K, [&](size_t pos, kmer x, kmer xb) {
-        while (cts.read2.fwd.size() <= pos) {
+      size_t curR2Len = (rhsSeq.second - rhsSeq.first) - K + 1;
+      if (curR2Len > r2Len) {
+        while (cts.read2.fwd.size() <= curR2Len) {
           cts.read2.fwd.push_back(counts(J, 0));
-        }
-        cts.read2.fwd[pos][x] += 1;
-        while (cts.read2.rev.size() <= pos) {
           cts.read2.rev.push_back(counts(J, 0));
         }
+        r2Len = curR2Len;
+      }
+      kmers::make(rhsSeq, K, [&](size_t pos, kmer x, kmer xb) {
+        cts.read2.fwd[pos][x] += 1;
         cts.read2.rev[pos][xb] += 1;
       });
     });
@@ -427,7 +506,6 @@ int main0(int argc, const char *argv[]) {
     std::ostream& out = **outp;
     out << res << std::endl;
   }
-
   
   BOOST_LOG_TRIVIAL(info) << "computing distributions.";
 
@@ -458,6 +536,14 @@ int main0(int argc, const char *argv[]) {
       }
       out << std::endl;
     }
+  }
+
+  if (opts["--save-distributions"]) {
+    nlohmann::json res = dist.to_json();
+
+    output_file_holder_ptr outp = files::out(opts["--save-distributions"].asString());
+    std::ostream& out = **outp;
+    out << res << std::endl;
   }
 
   BOOST_LOG_TRIVIAL(info) << "estimating gamma.";

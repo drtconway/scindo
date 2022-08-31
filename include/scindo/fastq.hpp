@@ -14,6 +14,42 @@ namespace scindo
     using fastq_text = std::pair<std::string::const_iterator,std::string::const_iterator>;
     using fastq_tuple = std::tuple<fastq_text,fastq_text,fastq_text,fastq_text>;
 
+    namespace detail
+    {
+        struct text_helpers {
+            static bool isspace(char c) {
+                switch (c) {
+                    case ' ':
+                    case '\t':
+                    case '\r':
+                    case '\n':
+                    case '\f':
+                    case '\v': {
+                        return true;
+                    }
+                    default: {
+                        return false;
+                    }
+                }
+            }
+
+            static void trim(std::string& p_str)
+            {
+                if (p_str.size() > 0 && isspace(p_str[0])) {
+                    boost::algorithm::trim(p_str);
+                    return;
+                }
+                
+                // Use a simplified algorithm when there is no space at the front.
+                //
+                while (p_str.size() > 0 && isspace(p_str.back())) {
+                    p_str.pop_back();
+                }
+            }
+        };
+    }
+    // namespace detail
+
     class fastq_reader
     {
     public:
@@ -146,8 +182,8 @@ namespace scindo
                     n = 0;
                     for (size_t i = 0; i < 4; ++i)
                     {
-                        boost::algorithm::trim(*lhs_r0[i]);
-                        boost::algorithm::trim(*rhs_r0[i]);
+                        detail::text_helpers::trim(*lhs_r0[i]);
+                        detail::text_helpers::trim(*rhs_r0[i]);
                     }
 
                     if (!starts_with(lhs_id, '@'))
