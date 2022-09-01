@@ -89,14 +89,13 @@ std::string chop_left(const std::string &p_orig, char p_ch) {
   return std::string(p_orig.begin() + lhs, p_orig.end());
 }
 
-struct gamma_estimator_state {
+using gamma_distribution_ptr = std::shared_ptr<gamma_distribution<>>;
+
+struct gamma_estimator {
   size_t N;
   double sx;
   double slx;
   double sxlx;
-};
-
-struct gamma_estimator : gamma_estimator_state {
 
   gamma_estimator() {
     N = 0;
@@ -126,6 +125,13 @@ struct gamma_estimator : gamma_estimator_state {
   double thetaHat() const {
     double thetaHat0 = 1.0 / (N * N) * (N * sxlx - slx * sx);
     return double(N) / double(N - 1) * thetaHat0;
+  }
+
+  gamma_distribution_ptr distribution() const {
+    if (N <= 1) {
+      return gamma_distribution_ptr();
+    }
+    return gamma_distribution_ptr(new gamma_distribution<>(kHat(), thetaHat()));
   }
 };
 
@@ -329,6 +335,72 @@ struct distr_state {
   }
 };
 
+
+struct gamma_estimator_state {
+  gamma_estimator global;
+  std::vector<gamma_estimator> read1;
+  std::vector<gamma_estimator> read2;
+
+  void add_sample(const distr_state& p_global, const distr_state& p_sample) {
+    for (size_t i = 0; i < p_sample.read1.fwd.size(); ++i) {
+      double kldFwd = klDivergence(p_sample.read1.fwd[i], p_global.global);
+      global.add(kldFwd);
+      while (i >= read1.size()) {
+        read1.push_back(gamma_estimator());
+      }
+      double kldFwdI = klDivergence(p_sample.read1.fwd[i], p_global.read1.fwd[i]);
+      read1[i].add(kldFwdI);
+    }
+    for (size_t i = 0; i < p_sample.read2.fwd.size(); ++i) {
+      double kldFwd = klDivergence(p_sample.read2.fwd[i], p_global.global);
+      global.add(kldFwd);
+      while (i >= read2.size()) {
+        read2.push_back(gamma_estimator());
+      }
+      double kldFwdI = klDivergence(p_sample.read2.fwd[i], p_global.read2.fwd[i]);
+      read2[i].add(kldFwdI);
+    }
+  }
+};
+
+struct gamma_state {
+  gamma_distribution_ptr global;
+  std::vector<gamma_distribution_ptr> read1;
+  std::vector<gamma_distribution_ptr> read2;
+
+  static gamma_state from_estimator(const gamma_estimator_state& p_estimator) {
+    gamma_state res;
+    res.global = p_estimator.global.distribution();
+    for (size_t i = 0; i < p_estimator.read1.size(); ++i) {
+      res.read1.push_back(p_estimator.read1[i].distribution());
+    }
+    for (size_t i = 0; i < p_estimator.read2.size(); ++i) {
+      res.read2.push_back(p_estimator.read2[i].distribution());
+    }
+    return res;
+  }
+
+  template <typename X>
+  typename std::enable_if<std::is_convertible<X,std::function<void(bool,size_t,double,double,double,double)>>::value,void>::type
+  score_sample(const distr_state& p_global, const distr_state& p_sample,
+                    X p_acceptor) const {
+    for (size_t i = 0; i < p_sample.read1.fwd.size(); ++i) {
+      double kldFwd = klDivergence(p_sample.read1.fwd[i], p_global.global);
+      double pvalFwd = (kldFwd > 0 ? cdf(complement(*global, kldFwd)) : 1);
+      double kldFwdI = klDivergence(p_sample.read1.fwd[i], p_global.read1.fwd[i]);
+      double pvalFwdI = (kldFwdI > 0 ? cdf(complement(*read1[i], kldFwdI)) : 1);
+      p_acceptor(true, i, kldFwd, pvalFwd, kldFwdI, pvalFwdI);
+    }
+    for (size_t i = 0; i < p_sample.read2.fwd.size(); ++i) {
+      double kldFwd = klDivergence(p_sample.read2.fwd[i], p_global.global);
+      double pvalFwd = (kldFwd > 0 ? cdf(complement(*global, kldFwd)) : 1);
+      double kldFwdI = klDivergence(p_sample.read2.fwd[i], p_global.read2.fwd[i]);
+      double pvalFwdI = (kldFwdI > 0 ? cdf(complement(*read2[i], kldFwdI)): 1);
+      p_acceptor(false, i, kldFwd, pvalFwd, kldFwdI, pvalFwdI);
+    }
+  }
+};
+
 void score_position_distr(gamma_estimator &p_gam, const distr &p_global,
                           const distr_state &p_sample) {
   for (size_t i = 0; i < p_sample.read1.fwd.size(); ++i) {
@@ -341,13 +413,55 @@ void score_position_distr(gamma_estimator &p_gam, const distr &p_global,
   }
 }
 
-void print_position_distr(const gamma_distribution<> &p_gamma,
-                          const distr &p_global, const distr_state &p_sample,
+void print_position_distr(const gamma_state &p_gamma,
+                          const distr_state &p_global, const distr_state &p_sample,
                           std::ostream &p_out, bool p_printHeader) {
 
   if (p_printHeader) {
-    p_out << "sample\tread\tpos\tkld\tpval" << std::endl;
+    p_out << "sample\tread\tpos\tkldGlobal\tpvalGlobal\tkldPosition\tpvalPosition" << std::endl;
   }
+
+  p_gamma.score_sample(p_global, p_sample, [&](bool isFirst, size_t pos, double kldGlobal, double pvalGlobal, double kldPosition, double pvalPosition) {
+    p_out << p_sample.sample << '\t' << (isFirst ? "R1" : "R2") << '\t' << pos << '\t' << kldGlobal << '\t'
+    << pvalGlobal << '\t' << kldPosition << '\t' << pvalPosition << std::endl;
+  });
+}
+
+void score_and_print(const distr_state &p_global,
+                     const std::vector<std::string> &p_names,
+                     const std::string &p_filename) {
+
+  if (p_filename == "/dev/null") {
+    return;
+  }
+
+  gamma_estimator_state estimator;
+
+  for (size_t n = 0; n < p_names.size(); ++n) {
+    BOOST_LOG_TRIVIAL(info) << "reloading " << p_names[n];
+    counts_state cts = counts_state::load(p_names[n]);
+    distr_state dst = distr_state::from_counts(cts);
+    estimator.add_sample(p_global, dst);
+  }
+
+  gamma_state gamma = gamma_state::from_estimator(estimator);
+
+  output_file_holder_ptr outp = files::out(p_filename);
+  std::ostream &out = **outp;
+
+  for (size_t n = 0; n < p_names.size(); ++n) {
+    BOOST_LOG_TRIVIAL(info) << "scoring " << p_names[n];
+    counts_state cts = counts_state::load(p_names[n]);
+    distr_state dst = distr_state::from_counts(cts);
+    print_position_distr(gamma, p_global, dst, out, n==0);
+  }
+}
+
+void print_position_distr(const gamma_distribution<> &p_gamma,
+                          const distr &p_global, const distr_state &p_sample,
+                          std::ostream &p_out) {
+
+  p_out << "sample\tread\tpos\tkld\tpval" << std::endl;
 
   for (size_t i = 0; i < p_sample.read1.fwd.size(); ++i) {
     double kldFwd = klDivergence(p_sample.read1.fwd[i], p_global);
@@ -360,42 +474,6 @@ void print_position_distr(const gamma_distribution<> &p_gamma,
     double pvalFwd = cdf(complement(p_gamma, kldFwd));
     p_out << p_sample.sample << '\t' << "R2" << '\t' << i << '\t' << kldFwd << '\t'
         << pvalFwd << std::endl;
-  }
-
-}
-
-void score_and_print(const distr &p_global,
-                     const std::vector<std::string> &p_names,
-                     const std::string &p_filename) {
-
-  if (p_filename == "/dev/null") {
-    return;
-  }
-
-  gamma_estimator gam;
-
-  for (size_t n = 0; n < p_names.size(); ++n) {
-    BOOST_LOG_TRIVIAL(info) << "reloading " << p_names[n];
-    counts_state cts = counts_state::load(p_names[n]);
-    distr_state dst = distr_state::from_counts(cts);
-    score_position_distr(gam, p_global, dst);
-  }
-
-  const double kHat = gam.kHat();
-  const double thetaHat = gam.thetaHat();
-  BOOST_LOG_TRIVIAL(info) << "gamma parameter k = " << kHat;
-  BOOST_LOG_TRIVIAL(info) << "gamma parameter theta = " << thetaHat;
-
-  gamma_distribution<> GammaDist(kHat, thetaHat);
-
-  output_file_holder_ptr outp = files::out(p_filename);
-  std::ostream &out = **outp;
-
-  for (size_t n = 0; n < p_names.size(); ++n) {
-    BOOST_LOG_TRIVIAL(info) << "scoring " << p_names[n];
-    counts_state cts = counts_state::load(p_names[n]);
-    distr_state dst = distr_state::from_counts(cts);
-    print_position_distr(GammaDist, p_global, dst, out, n==0);
   }
 }
 
@@ -420,7 +498,7 @@ void score_and_print(const distr_state& p_sample, const std::string& p_filename)
   output_file_holder_ptr outp = files::out(p_filename);
   std::ostream &out = **outp;
 
-  print_position_distr(GammaDist, p_sample.global, p_sample, out, true);
+  print_position_distr(GammaDist, p_sample.global, p_sample, out);
 }
 
 int main_merge(std::map<std::string, docopt::value> &opts) {
@@ -439,7 +517,7 @@ int main_merge(std::map<std::string, docopt::value> &opts) {
   }
   distr_state global = distr_state::from_counts(agg);
 
-  score_and_print(global.global, names, opts["--output-file"].asString());
+  score_and_print(global, names, opts["--output-file"].asString());
 
   return 0;
 }
