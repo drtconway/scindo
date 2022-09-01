@@ -368,6 +368,7 @@ int main_merge(std::map<std::string, docopt::value>& opts)
   const double thetaHat = gam.thetaHat();
   gamma_distribution<> GammaDist(kHat, thetaHat);
 
+  BOOST_LOG_TRIVIAL(info) << "preparing to write to " << opts["--output-file"];
   if (opts["--output-file"].asString() != "/dev/null") {
     output_file_holder_ptr outp = files::out(opts["--output-file"].asString());
     std::ostream& out = **outp;
@@ -558,7 +559,7 @@ int main_count(std::map<std::string, docopt::value>& opts) {
   gamma_distribution<> GammaDist(kHat, thetaHat);
 
   if (opts["--output-file"].asString() != "/dev/null") {
-    output_file_holder_ptr outp = files::out(opts["--output-fie"].asString());
+    output_file_holder_ptr outp = files::out(opts["--output-file"].asString());
     std::ostream& out = **outp;
 
     out << "read\tpos\tkld\tpval" << std::endl;
