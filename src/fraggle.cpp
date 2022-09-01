@@ -128,8 +128,8 @@ struct gamma_estimator : gamma_estimator_state {
   }
 };
 
-double klDivergence(const std::vector<double> &p_Q,
-                    const std::vector<double> &p_P) {
+double klDivergence(const std::vector<double> &p_P,
+                    const std::vector<double> &p_Q) {
   double d = 0;
   for (size_t i = 0; i < p_P.size(); ++i)
   {
@@ -366,6 +366,9 @@ int main_merge(std::map<std::string, docopt::value>& opts)
 
   const double kHat = gam.kHat();
   const double thetaHat = gam.thetaHat();
+  BOOST_LOG_TRIVIAL(info) << "gamma parameter k = " << kHat;
+  BOOST_LOG_TRIVIAL(info) << "gamma parameter theta = " << thetaHat;
+
   gamma_distribution<> GammaDist(kHat, thetaHat);
 
   BOOST_LOG_TRIVIAL(info) << "preparing to write to " << opts["--output-file"];
@@ -555,6 +558,8 @@ int main_count(std::map<std::string, docopt::value>& opts) {
 
   const double kHat = gam.kHat();
   const double thetaHat = gam.thetaHat();
+  BOOST_LOG_TRIVIAL(info) << "gamma parameter k = " << kHat;
+  BOOST_LOG_TRIVIAL(info) << "gamma parameter theta = " << thetaHat;
 
   gamma_distribution<> GammaDist(kHat, thetaHat);
 
