@@ -217,18 +217,70 @@ void mergeVcfs(const vcf_ptrs &p_vcfs,
   }
 }
 
-void index_bed_file(
-    const std::string &p_filename,
-    std::map<std::string, std::vector<std::pair<int64_t, int64_t>>>
-        &p_regions) {
+using range_vector = std::vector<std::pair<uint32_t, uint32_t>>;
+
+void index_bed_file(const std::string &p_filename,
+                    std::map<std::string, range_vector> &p_regions) {
+
+  // Read it all in.
+  //
   scindo::input_file_holder_ptr inp = scindo::files::in(p_filename);
   scindo::tsv::with(**inp, [&](const std::vector<std::string> &p_row) {
     const std::string &chrom = p_row[0];
-    const size_t start = boost::lexical_cast<int64_t>(p_row[1]);
-    const size_t stop = boost::lexical_cast<int64_t>(p_row[2]);
+    const size_t start = boost::lexical_cast<uint64_t>(p_row[1]);
+    const size_t stop = boost::lexical_cast<uint64_t>(p_row[2]);
     p_regions[chrom].push_back(std::make_pair(start, stop));
   });
+
+  // Sort, and merge overlapping regions.
+  //
+  for (auto itr = p_regions.begin(); itr != p_regions.end(); ++itr) {
+    range_vector &rs = itr->second;
+    std::sort(rs.begin(), rs.end());
+    rs.erase(std::unique(rs.begin(), rs.end()), rs.end());
+    range_vector tmp;
+    for (auto jtr = rs.begin(); jtr != rs.end(); ++jtr) {
+      if (tmp.size() == 0 || jtr->first > tmp.back().second) {
+        tmp.push_back(*jtr);
+      } else {
+        tmp.back().second = std::max(tmp.back().second, jtr->second);
+      }
+    }
+    rs.swap(tmp);
+  }
 }
+
+struct ranges_cursor {
+  const std::map<std::string, range_vector> &m_ranges;
+  std::string m_chrom;
+  range_vector::const_iterator m_cur;
+  range_vector::const_iterator m_end;
+
+  ranges_cursor(const std::map<std::string, range_vector> &p_ranges)
+      : m_ranges(p_ranges) {
+    m_cur = m_end;
+  }
+
+  bool operator()(const std::string &p_chrom, int64_t p_pos) {
+    if (p_chrom != m_chrom) {
+      m_chrom = p_chrom;
+      auto itr = m_ranges.find(m_chrom);
+      if (itr == m_ranges.end()) {
+        m_cur = m_end;
+        return false;
+      }
+      m_cur = itr->second.begin();
+      m_end = itr->second.end();
+    }
+    while (m_cur != m_end && p_pos >= m_cur->second) {
+      ++m_cur;
+    }
+    if (m_cur == m_end || p_pos < m_cur->first) {
+      return false;
+    }
+    return true;
+  }
+};
 
 using bam_ptr = std::shared_ptr<bam::bam_file_reader>;
 using bam_ptrs = std::vector<bam_ptr>;
@@ -666,6 +718,7 @@ struct gamma {
 void build_estimate(const std::string &p_reference,
                     const std::vector<std::string> &p_filenames,
                     const size_t &p_C,
+                    const std::map<std::string, range_vector> &p_ranges,
                     std::map<scindo::kmer, gamma> &p_estimators) {
   bam_ptrs bams;
   for (auto bamName : p_filenames) {
@@ -691,6 +744,10 @@ void build_estimate(const std::string &p_reference,
   size_t N = 0;
   std::string chrom;
   std::vector<coverage> covs;
+
+  const bool useRanges = (p_ranges.size() > 0);
+  ranges_cursor inRange(p_ranges);
+
   while (cursors.size()) {
     chrom = cursors.front()->chrom;
     int64_t pos = cursors.front()->pos;
@@ -711,6 +768,10 @@ void build_estimate(const std::string &p_reference,
     std::sort(cursors.begin(), cursors.end(), cursorLess);
     while (cursors.size() > 0 && !cursors.back()->valid) {
       cursors.pop_back();
+    }
+
+    if (useRanges && !inRange(chrom, pos)) {
+      continue;
     }
 
     const size_t t = cov.total();
@@ -750,6 +811,7 @@ void build_estimate(const std::string &p_reference,
 void compute_significance(const std::string &p_reference,
                           const std::vector<std::string> &p_filenames,
                           const size_t &p_C,
+                          const std::map<std::string, range_vector> &p_ranges,
                           const std::map<scindo::kmer, gamma> &p_estimators,
                           std::ostream &p_out) {
   bam_ptrs bams;
@@ -779,6 +841,9 @@ void compute_significance(const std::string &p_reference,
   std::vector<item> covs;
   std::vector<double> ps;
 
+  const bool useRanges = (p_ranges.size() > 0);
+  ranges_cursor inRange(p_ranges);
+
   p_out << "locus" << '\t' << "num.samples" << '\t' << "context" << '\t'
         << "sample" << '\t' << "divergence" << '\t' << "pvalue" << '\t'
         << "pseudo.allele.count" << '\t' << "fit" << '\t' << "A" << '\t' << "C"
@@ -807,6 +872,10 @@ void compute_significance(const std::string &p_reference,
     std::sort(cursors.begin(), cursors.end(), cursorLess);
     while (cursors.size() > 0 && !cursors.back()->valid) {
       cursors.pop_back();
+    }
+
+    if (useRanges && !inRange(chrom, pos)) {
+      continue;
     }
 
     if (covs.size() <= 1) {
@@ -892,6 +961,14 @@ int main0(int argc, const char *argv[]) {
 
   const size_t C = std::stoi(opts["--min-coverage"].asString());
 
+  std::map<std::string, range_vector> R;
+  if (opts["--regions"]) {
+    BOOST_LOG_TRIVIAL(info)
+        << "Loading regions from: " << opts["--regions"].asString();
+    index_bed_file(opts["--regions"].asString(), R);
+    BOOST_LOG_TRIVIAL(info) << "done.";
+  }
+
   std::map<scindo::kmer, gamma> estimators;
 
   if (opts["--index"]) {
@@ -904,7 +981,7 @@ int main0(int argc, const char *argv[]) {
     BOOST_LOG_TRIVIAL(info) << "loaded " << estimators.size() << " contexts";
   } else {
     build_estimate(opts["<reference>"].asString(), opts["<BAM>"].asStringList(),
-                   C, estimators);
+                   C, R, estimators);
   }
 
   if (opts["--save-index"]) {
@@ -923,7 +1000,8 @@ int main0(int argc, const char *argv[]) {
   }
 
   compute_significance(opts["<reference>"].asString(),
-                       opts["<BAM>"].asStringList(), C, estimators, std::cout);
+                       opts["<BAM>"].asStringList(), C, R, estimators,
+                       std::cout);
 
   return 0;
 }
