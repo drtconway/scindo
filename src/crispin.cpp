@@ -113,7 +113,7 @@ double fit_homozygous(const std::vector<double> &p_probs) {
 
 double fit_heterozygous(const std::vector<double> &p_probs) {
   if (p_probs.size() < 2) {
-    return 0;
+    return 1;
   }
   size_t n = p_probs.size();
   const double eps = 0.05;
@@ -846,7 +846,7 @@ void compute_significance(const std::string &p_reference,
 
   p_out << "locus" << '\t' << "num.samples" << '\t' << "context" << '\t'
         << "sample" << '\t' << "divergence" << '\t' << "pvalue" << '\t'
-        << "pseudo.allele.count" << '\t' << "fit" << '\t' << "A" << '\t' << "C"
+        << "pseudo.allele.count" << '\t' << "gt" << '\t' << "fit" << '\t' << "A" << '\t' << "C"
         << '\t' << "G" << '\t' << "T" << '\t' << "N" << '\t' << "indels"
         << std::endl;
 
@@ -931,17 +931,22 @@ void compute_significance(const std::string &p_reference,
       double v = S.var();
       double h1 = fit_homozygous(ps);
       double h2 = fit_heterozygous(ps);
-      double h = std::min(h1, h2);
+      double h = h1;
+      bool isHet = false;
+      if (h2 < h1) {
+        h = h2;
+        isHet = true;
+      }
       if (h > 0.1) {
         continue;
       }
       const auto &c = itr->second;
       p_out << chrom << ':' << (pos + 1) << '\t' << covs.size() << '\t'
             << ctxtStr << '\t' << itr->first << '\t' << kld << '\t' << pv
-            << '\t' << c.pseudo_allele_count() << '\t' << h << '\t'
-            << c.bases[0] << '\t' << c.bases[1] << '\t' << c.bases[2] << '\t'
-            << c.bases[3] << '\t' << c.bases[4] << '\t' << c.indels()
-            << std::endl;
+            << '\t' << c.pseudo_allele_count() << '\t'
+            << (isHet ? "het" : "hom") << '\t' << h << '\t' << c.bases[0]
+            << '\t' << c.bases[1] << '\t' << c.bases[2] << '\t' << c.bases[3]
+            << '\t' << c.bases[4] << '\t' << c.indels() << std::endl;
     }
   }
 }
