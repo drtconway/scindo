@@ -117,7 +117,7 @@ double fit_heterozygous(const std::vector<double> &p_probs) {
   }
   size_t n = p_probs.size();
   const double eps = 0.05;
-  const double p0 = 0.5 - eps;
+  const double p0 = (1.0 - eps) / 2.0;
   const double p1 = eps / n;
   double chi2 = 0;
   chi2 += sqr(p_probs[0] - p0) / p0;
@@ -846,7 +846,7 @@ void compute_significance(const std::string &p_reference,
 
   p_out << "locus" << '\t' << "num.samples" << '\t' << "context" << '\t'
         << "sample" << '\t' << "divergence" << '\t' << "pvalue" << '\t'
-        << "pseudo.allele.count" << '\t' << "gt" << '\t' << "fit" << '\t' << "A" << '\t' << "C"
+        << "pseudo.allele.count" << '\t' << "gt" << '\t' << "fit" << '\t' << "cov" << '\t' << "A" << '\t' << "C"
         << '\t' << "G" << '\t' << "T" << '\t' << "N" << '\t' << "indels"
         << std::endl;
 
@@ -911,7 +911,8 @@ void compute_significance(const std::string &p_reference,
     std::string ctxtStr = scindo::kmers::render(6, ctxt);
 
     for (auto itr = covs.begin(); itr != covs.end(); ++itr) {
-      if (itr->second.total() < p_C) {
+      const size_t t0 = itr->second.total();
+      if (t0 < p_C) {
         continue;
       }
       auto dist1 = itr->second.distribution();
@@ -944,7 +945,7 @@ void compute_significance(const std::string &p_reference,
       p_out << chrom << ':' << (pos + 1) << '\t' << covs.size() << '\t'
             << ctxtStr << '\t' << itr->first << '\t' << kld << '\t' << pv
             << '\t' << c.pseudo_allele_count() << '\t'
-            << (isHet ? "het" : "hom") << '\t' << h << '\t' << c.bases[0]
+            << (isHet ? "het" : "hom") << '\t' << h << '\t' << t0 << '\t' << c.bases[0]
             << '\t' << c.bases[1] << '\t' << c.bases[2] << '\t' << c.bases[3]
             << '\t' << c.bases[4] << '\t' << c.indels() << std::endl;
     }
